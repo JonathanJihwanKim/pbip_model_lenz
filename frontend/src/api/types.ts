@@ -97,6 +97,8 @@ export interface MeasureRef {
   expression: string | null;
   direct_table_count: number;
   indirect_table_count: number;
+  direct_tables: string[];
+  indirect_tables: string[];
 }
 
 export interface UserelHint {

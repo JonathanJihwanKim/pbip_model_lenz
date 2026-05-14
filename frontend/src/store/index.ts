@@ -140,25 +140,14 @@ export const useStore = create<State>((set, get) => ({
   },
 
   toggleFolder: (folder) => {
+    // Default is closed; presence in `expandedFolders` flips it open.
+    // collapsedFolders is unused under the new scheme but kept on the type
+    // for backward compatibility with existing localStorage entries.
     const expanded = new Set(get().expandedFolders);
-    const collapsed = new Set(get().collapsedFolders);
-    // The default-open rule (folder size <= 10) is decided by the Sidebar.
-    // Here we just record an explicit user choice that flips it.
-    if (expanded.has(folder)) {
-      expanded.delete(folder);
-      collapsed.add(folder);
-    } else if (collapsed.has(folder)) {
-      collapsed.delete(folder);
-      expanded.add(folder);
-    } else {
-      // No explicit state yet → record the inverted-default choice.
-      // The sidebar passes us "what the user wants now"; we flip whatever the
-      // current effective state is. Simpler: just toggle into expanded.
-      expanded.add(folder);
-    }
+    if (expanded.has(folder)) expanded.delete(folder);
+    else expanded.add(folder);
     saveSet(STORAGE_EXPANDED, expanded);
-    saveSet(STORAGE_COLLAPSED, collapsed);
-    set({ expandedFolders: expanded, collapsedFolders: collapsed });
+    set({ expandedFolders: expanded });
   },
 
   expandFolder: (folder) => {
@@ -217,15 +206,19 @@ export const useStore = create<State>((set, get) => ({
 export const ALL_CLASSIFICATIONS = ALL_CLASSES;
 export const DEFAULT_VISIBLE_CLASSIFICATIONS = BACKBONE_CLASSES;
 
-/** True iff the folder should appear open right now. */
+/** True iff the folder should appear open right now.
+ *
+ * Default is **collapsed** for every folder so the sidebar reads consistently
+ * regardless of folder size. Two things override that default:
+ *   - the folder appears in `expandedFolders` (user explicitly opened it,
+ *     or `expandFolder` was called for it when its measure was selected)
+ *   - search is active (every matching folder is revealed)
+ */
 export function isFolderOpen(
   folderName: string,
-  itemCount: number,
-  state: State,
+  expandedFolders: Set<string>,
   searchActive: boolean,
 ): boolean {
-  if (searchActive) return true; // search reveals everything
-  if (state.expandedFolders.has(folderName)) return true;
-  if (state.collapsedFolders.has(folderName)) return false;
-  return itemCount <= 10;
+  if (searchActive) return true;
+  return expandedFolders.has(folderName);
 }

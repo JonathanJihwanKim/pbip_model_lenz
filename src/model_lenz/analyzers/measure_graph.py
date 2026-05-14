@@ -32,13 +32,21 @@ def build_measure_graph(
 
     refs = transitive.resolve(measure.expression, measure_index)
 
-    # Direct refs come from the measure's own expression.
-    direct_tables = sorted(refs.direct.tables)
+    # `direct_tables` here is the FULL story for the user: tables touched
+    # directly by the seed measure's own DAX, plus any tables touched
+    # directly by measures the seed references. Without the union the
+    # frontend would lie - e.g. `% of total orderline` doesn't mention
+    # `_orderline_agg_rpt` itself but it depends on it via
+    # `[Number of Picked Orderlines]`. Provenance (which ref measure
+    # introduced each table) is preserved on `referenced_measures` below.
+    all_direct = refs.direct.tables | refs.transitive.tables
+    direct_tables = sorted(all_direct)
     direct_columns = sorted(refs.direct.columns)
     referenced_measures = sorted(refs.direct.measures)
 
-    # Indirect-dep walking uses the union of direct + transitive table refs as seeds.
-    seeds = transitive.all_tables(refs)
+    # Indirect-dep walking uses the union as seeds, so refs' indirect
+    # dependencies are already part of the result.
+    seeds = all_direct
     userel_hints = transitive.all_userel_hints(refs)
     indirect_raw = rel_graph.walk(
         seeds, max_depth=depth, userel_hints=userel_hints
@@ -74,6 +82,7 @@ def build_measure_graph(
             max_depth=depth,
             userel_hints=ref_refs.userel_hints,
         )
+        ref_indirect_names = sorted({it.table for it in ref_indirect})
         ref_previews.append(
             MeasureRef(
                 name=ref_m.name,
@@ -81,6 +90,8 @@ def build_measure_graph(
                 expression=ref_m.expression,
                 direct_table_count=len(ref_refs.tables),
                 indirect_table_count=len(ref_indirect),
+                direct_tables=sorted(ref_refs.tables),
+                indirect_tables=ref_indirect_names,
             )
         )
 

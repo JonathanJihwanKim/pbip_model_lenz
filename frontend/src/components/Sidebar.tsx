@@ -23,7 +23,6 @@ export function Sidebar() {
   const selectMeasure = useStore((s) => s.selectMeasure);
   const selectTable = useStore((s) => s.selectTable);
   const expandedFolders = useStore((s) => s.expandedFolders);
-  const collapsedFolders = useStore((s) => s.collapsedFolders);
   const toggleFolder = useStore((s) => s.toggleFolder);
   const expandFolder = useStore((s) => s.expandFolder);
 
@@ -112,12 +111,7 @@ export function Sidebar() {
       <div className="sidebar-list">
         {tab === "measures" &&
           measureGroups.map(([folder, items]) => {
-            const open = isFolderOpen(
-              folder,
-              items.length,
-              { expandedFolders, collapsedFolders } as never,
-              searchActive,
-            );
+            const open = isFolderOpen(folder, expandedFolders, searchActive);
             return (
               <section key={folder} className={`folder ${open ? "open" : "closed"}`}>
                 <button

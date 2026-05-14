@@ -85,13 +85,25 @@ function MeasureDetails({
 
       <Section title={`Direct tables (${graph.direct_tables.length})`}>
         {graph.direct_tables.length === 0 && <p className="muted">None</p>}
-        <div className="chip-row">
-          {graph.direct_tables.map((t) => (
-            <span key={t} className="chip on solid" title={t}>
-              {fmt(t)}
-            </span>
-          ))}
-        </div>
+        <ul className="list table-list">
+          {graph.direct_tables.map((t) => {
+            const viaSeed = isReferencedBySeed(t, graph);
+            const viaRefs = referencingMeasures(t, graph.referenced_measures, "direct");
+            return (
+              <li key={t} className="table-row">
+                <span className="table-name" title={t}>
+                  {fmt(t)}
+                </span>
+                {viaSeed && <span className="badge mini direct-self">in this DAX</span>}
+                {viaRefs.map((r) => (
+                  <span key={r} className="badge mini via">
+                    via {r}
+                  </span>
+                ))}
+              </li>
+            );
+          })}
+        </ul>
       </Section>
 
       {graph.referenced_measures.length > 0 && (
@@ -139,7 +151,13 @@ function MeasureDetails({
           <p className="muted">No tables reachable through relationships.</p>
         )}
         <ul className="list indirect-list">
-          {graph.indirect_tables.map((it) => (
+          {graph.indirect_tables.map((it) => {
+            const viaRefs = referencingMeasures(
+              it.table,
+              graph.referenced_measures,
+              "indirect",
+            );
+            return (
             <li key={it.table}>
               <div className="indirect-head">
                 <strong>{fmt(it.table)}</strong>
@@ -150,6 +168,11 @@ function MeasureDetails({
                 {it.crosses_fact && (
                   <span className="badge warn">crosses fact</span>
                 )}
+                {viaRefs.map((r) => (
+                  <span key={r} className="badge mini via">
+                    via {r}
+                  </span>
+                ))}
               </div>
               {it.paths.map((p, i) => (
                 <div key={i} className="path">
@@ -173,7 +196,8 @@ function MeasureDetails({
                 </div>
               ))}
             </li>
-          ))}
+            );
+          })}
         </ul>
       </Section>
 
@@ -334,4 +358,43 @@ function trimDax(expr: string): string {
   const lines = expr.trim().split("\n");
   if (lines.length <= 6) return lines.join("\n");
   return lines.slice(0, 6).join("\n") + "\n…";
+}
+
+/** Did the seed measure's own DAX directly mention this table?
+ *
+ * We can't ask "is `table` in graph.measure.expression?" because table names
+ * containing brackets/quotes need a parser. Instead infer it: a table appears
+ * in `direct_tables` either because the seed mentions it directly OR because
+ * a referenced measure mentions it. If at least one referenced measure has
+ * the table in its `direct_tables`, AND nothing else differentiates, we can't
+ * be 100% sure - but we approximate: a table is "in this DAX" iff it does NOT
+ * appear in any referenced measure's direct_tables.
+ *
+ * This isn't perfect (a table could appear in BOTH the seed and a ref) but
+ * the badge is informational, not load-bearing - the goal is to flag
+ * "this came in via a sub-measure" cases for the user.
+ */
+function isReferencedBySeed(
+  table: string,
+  graph: ReturnType<typeof useStore.getState>["measureGraph"],
+): boolean {
+  if (!graph) return false;
+  const refIntroduced = graph.referenced_measures.some((m) =>
+    m.direct_tables.includes(table),
+  );
+  return !refIntroduced;
+}
+
+/** Names of referenced measures whose direct (or indirect) tables include this table. */
+function referencingMeasures(
+  table: string,
+  refs: import("../api/types").MeasureRef[],
+  kind: "direct" | "indirect",
+): string[] {
+  const list = refs.filter((m) =>
+    kind === "direct"
+      ? m.direct_tables.includes(table)
+      : m.indirect_tables.includes(table),
+  );
+  return list.map((m) => m.name);
 }

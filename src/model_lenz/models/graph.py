@@ -61,6 +61,8 @@ class MeasureRef(BaseModel):
     expression: str | None = None
     direct_table_count: int = 0
     indirect_table_count: int = 0
+    direct_tables: list[str] = Field(default_factory=list)
+    indirect_tables: list[str] = Field(default_factory=list)
 
 
 class ColumnRef(BaseModel):
