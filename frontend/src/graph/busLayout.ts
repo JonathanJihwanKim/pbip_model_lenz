@@ -79,15 +79,28 @@ export function isDisconnectedZone(c: PositionableNode["classification"]): boole
   return c === "parameter" || c === "calculation_group" || c === "other";
 }
 
-/** Sort dims so Calendar/Time appear first; then by descending fact-rel count. */
+/** Sort dims so Calendar/Time appear first; then by descending fact-rel count.
+ *
+ * When `focusedIds` is non-empty AND pack mode is on, focused dims jump to
+ *  the front of their ordering bucket (after time tables) so the user sees
+ *  every related dim packed at the left of the row, regardless of their
+ *  default position. Within "focused" and "unfocused" subsets the original
+ *  ordering rules still apply.
+ */
 function sortDims(
   nodes: PositionableNode[],
   factRelCount: Map<string, number>,
+  focusedIds: Set<string> | null,
 ): PositionableNode[] {
   return [...nodes].sort((a, b) => {
     const aTime = a.classification === "time" || TIME_NAME_PATTERN.test(a.label);
     const bTime = b.classification === "time" || TIME_NAME_PATTERN.test(b.label);
     if (aTime !== bTime) return aTime ? -1 : 1;
+    if (focusedIds) {
+      const aFocus = focusedIds.has(a.id);
+      const bFocus = focusedIds.has(b.id);
+      if (aFocus !== bFocus) return aFocus ? -1 : 1;
+    }
     const aCount = factRelCount.get(a.id) ?? 0;
     const bCount = factRelCount.get(b.id) ?? 0;
     if (aCount !== bCount) return bCount - aCount;
@@ -95,12 +108,21 @@ function sortDims(
   });
 }
 
-/** Sort facts by descending dim-rel count, then alphabetical. */
+/** Sort facts by descending dim-rel count, then alphabetical.
+ *
+ * Same focus-aware behavior as sortDims: focused facts pack to the top of
+ *  the column when pack mode is on. */
 function sortFacts(
   nodes: PositionableNode[],
   dimRelCount: Map<string, number>,
+  focusedIds: Set<string> | null,
 ): PositionableNode[] {
   return [...nodes].sort((a, b) => {
+    if (focusedIds) {
+      const aFocus = focusedIds.has(a.id);
+      const bFocus = focusedIds.has(b.id);
+      if (aFocus !== bFocus) return aFocus ? -1 : 1;
+    }
     const aCount = dimRelCount.get(a.id) ?? 0;
     const bCount = dimRelCount.get(b.id) ?? 0;
     if (aCount !== bCount) return bCount - aCount;
@@ -112,12 +134,17 @@ function sortFacts(
  * Compute positions for visible nodes. Hidden nodes (not in `visibleIds`) get
  * a "hidden" zone marker but still receive coordinates (off-canvas) so the
  * simulation doesn't NaN out.
+ *
+ * `focusedIds` (optional): when non-null, dims/facts whose IDs are in the set
+ *  pack to the front of their respective zones. Used by the "Pack related
+ *  tables" toggle so the user can opt into selection-driven reordering.
  */
 export function computeBusLayout(
   nodes: PositionableNode[],
   edges: PositionableEdge[],
   visibleIds: Set<string>,
   opts: BusLayoutOptions = DEFAULT_LAYOUT,
+  focusedIds: Set<string> | null = null,
 ): Map<string, NodePosition> {
   // Count cross-zone relationships per visible node (used for sort weight).
   const dimRelCount = new Map<string, number>();
@@ -139,8 +166,16 @@ export function computeBusLayout(
   }
 
   const visible = nodes.filter((n) => visibleIds.has(n.id));
-  const dims = sortDims(visible.filter((n) => isDimZone(n.classification)), factRelCount);
-  const facts = sortFacts(visible.filter((n) => isFactZone(n.classification)), dimRelCount);
+  const dims = sortDims(
+    visible.filter((n) => isDimZone(n.classification)),
+    factRelCount,
+    focusedIds,
+  );
+  const facts = sortFacts(
+    visible.filter((n) => isFactZone(n.classification)),
+    dimRelCount,
+    focusedIds,
+  );
   const disconnected = visible
     .filter((n) => isDisconnectedZone(n.classification))
     .sort((a, b) => a.label.localeCompare(b.label));

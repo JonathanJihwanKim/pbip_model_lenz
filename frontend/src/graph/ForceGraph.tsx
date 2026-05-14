@@ -17,7 +17,12 @@
 
 import { useEffect, useMemo, useRef } from "react";
 import { select } from "d3-selection";
-import { zoom as d3zoom, type ZoomBehavior } from "d3-zoom";
+import { zoom as d3zoom, zoomIdentity, type ZoomBehavior } from "d3-zoom";
+// Side-effect import: extends d3-selection with .transition() so the
+// auto-fit zoom call below can animate. d3-zoom calls .transition() on
+// selections internally, but the method only exists once d3-transition has
+// been loaded.
+import "d3-transition";
 
 import { useStore } from "../store";
 import type { Cardinality, RelationshipItem } from "../api/types";
@@ -63,10 +68,12 @@ export function ForceGraph() {
   const measureGraph = useStore((s) => s.measureGraph);
   const selectTable = useStore((s) => s.selectTable);
   const pinSelection = useStore((s) => s.pinSelection);
+  const packMode = useStore((s) => s.packMode);
 
   const svgRef = useRef<SVGSVGElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const tooltipRef = useRef<HTMLDivElement>(null);
+  const zoomRef = useRef<ZoomBehavior<SVGSVGElement, unknown> | null>(null);
 
   // Visibility set: classFilter + selection-driven reveal of disconnected
   // tables that the selected measure happens to touch.
@@ -84,6 +91,20 @@ export function ForceGraph() {
     }
     return visible;
   }, [tables, classFilter, selection, measureGraph]);
+
+  // Set of node IDs the current selection "relates to" (direct + indirect
+  // tables of a measure, or just the table itself). Drives both the Pack
+  // toggle's reordering and the auto-fit viewport calculation.
+  const relatedNodeIds = useMemo(() => {
+    const ids = new Set<string>();
+    if (selection?.kind === "measure" && measureGraph) {
+      for (const name of measureGraph.direct_tables) ids.add(`t:${name}`);
+      for (const it of measureGraph.indirect_tables) ids.add(`t:${it.table}`);
+    } else if (selection?.kind === "table") {
+      ids.add(`t:${selection.name}`);
+    }
+    return ids;
+  }, [selection, measureGraph]);
 
   const layout = useMemo(() => {
     const tableLookup = new Map(tables.map((t) => [t.name, t]));
@@ -103,7 +124,9 @@ export function ForceGraph() {
         rel: r,
       }));
 
-    const positions = computeBusLayout(nodes, edges, visibleNodeIds);
+    // Pack mode only kicks in when there's something to pack against.
+    const focused = packMode && relatedNodeIds.size > 0 ? relatedNodeIds : null;
+    const positions = computeBusLayout(nodes, edges, visibleNodeIds, DEFAULT_LAYOUT, focused);
 
     const nodeViews: NodeView[] = tables.map((t) => {
       const id = `t:${t.name}`;
@@ -136,7 +159,7 @@ export function ForceGraph() {
       });
 
     return { nodes: nodeViews, edges: edgeViews, positions };
-  }, [tables, relationships, visibleNodeIds]);
+  }, [tables, relationships, visibleNodeIds, packMode, relatedNodeIds]);
 
   // Spotlight: when a measure is selected and its graph is loaded, build
   // (a) a synthetic "measure" node in the top-left corner, and
@@ -202,7 +225,57 @@ export function ForceGraph() {
         select(svg).select<SVGGElement>("g.viewport").attr("transform", e.transform.toString());
       });
     select(svg).call(z);
+    zoomRef.current = z;
   }, []);
+
+  // Auto-fit viewport when a measure is selected (or selection changes).
+  // Computes the bounding box of the synthetic measure node + every related
+  // table card, then transitions the zoom transform so that box fills the
+  // canvas with padding. User pan/zoom after fit is preserved until the next
+  // selection change.
+  useEffect(() => {
+    const svg = svgRef.current;
+    const z = zoomRef.current;
+    if (!svg || !z) return;
+    if (!selection) return;
+    if (selection.kind === "measure" && !measureGraph) return; // wait for load
+
+    const positioned = layout.nodes.filter(
+      (n) => n.visible && (relatedNodeIds.has(n.id) || (selection.kind === "table" && n.label === selection.name)),
+    );
+    // Include the synthetic measure node so the corner anchor is in frame.
+    const points: Array<{ x: number; y: number }> = positioned.map((n) => ({
+      x: n.position.x,
+      y: n.position.y,
+    }));
+    if (selection.kind === "measure") {
+      points.push({ x: DEFAULT_LAYOUT.originX, y: DEFAULT_LAYOUT.originY });
+    }
+    if (points.length === 0) return;
+
+    const pad = CARD_W; // breathing room around the bbox
+    const minX = Math.min(...points.map((p) => p.x)) - pad;
+    const maxX = Math.max(...points.map((p) => p.x)) + pad;
+    const minY = Math.min(...points.map((p) => p.y)) - pad;
+    const maxY = Math.max(...points.map((p) => p.y)) + pad;
+    const w = maxX - minX;
+    const h = maxY - minY;
+
+    const rect = svg.getBoundingClientRect();
+    if (rect.width === 0 || rect.height === 0) return;
+    // Scale to fit; clamp to the configured zoom range.
+    const scale = Math.min(rect.width / w, rect.height / h, 1.2);
+    const clampedScale = Math.max(0.2, Math.min(4, scale));
+    const cx = (minX + maxX) / 2;
+    const cy = (minY + maxY) / 2;
+    const tx = rect.width / 2 - cx * clampedScale;
+    const ty = rect.height / 2 - cy * clampedScale;
+
+    select(svg)
+      .transition()
+      .duration(550)
+      .call(z.transform, zoomIdentity.translate(tx, ty).scale(clampedScale));
+  }, [selection, measureGraph, relatedNodeIds, layout]);
 
   // Reset cursor styling on mount; nothing else needs imperative DOM.
   useEffect(() => {
@@ -373,8 +446,13 @@ export function ForceGraph() {
               <g
                 key={n.id}
                 className={`node node-${n.classification}`}
-                transform={`translate(${n.position.x}, ${n.position.y})`}
-                style={{ opacity: nodeOpacity(n), cursor: "pointer" }}
+                style={{
+                  // CSS transform (not SVG attribute) so the .bus-graph .node
+                  // transition rule animates Pack-mode reshuffles smoothly.
+                  transform: `translate(${n.position.x}px, ${n.position.y}px)`,
+                  opacity: nodeOpacity(n),
+                  cursor: "pointer",
+                }}
                 onClick={(e) => {
                   e.stopPropagation();
                   selectTable(n.label);
