@@ -1,23 +1,56 @@
+![Model Lenz — the same graph for Power BI developers and data engineers](docs/hero.png)
+
 # Model Lenz
 
-**Open-source PBIP analyzer.** Point it at a Power BI project folder, click any DAX measure, and see exactly what tables it depends on — both directly (referenced in the expression) and indirectly (reached through the relationship graph) — alongside the source-system lineage of every table.
+*One graph, two readings. The same Power BI model — told in PBIP names for the BI developer and source-system names for the data engineer. Pick a measure, see every table it really depends on.*
 
-> Status: alpha. Core analysis pipeline (parser → walker → API → SPA) is complete. Packaging and docs are stabilizing for a first public release.
+[![PyPI](https://img.shields.io/pypi/v/model-lenz.svg)](https://pypi.org/project/model-lenz/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Python](https://img.shields.io/badge/python-%E2%89%A53.10-blue.svg)](https://www.python.org/downloads/)
+[![GitHub Sponsors](https://img.shields.io/github/sponsors/JonathanJihwanKim?label=Sponsor&logo=GitHub)](https://github.com/sponsors/JonathanJihwanKim)
+[![Buy Me a Coffee](https://img.shields.io/badge/Buy%20Me%20A%20Coffee-%E2%98%95-FFDD00?logo=buymeacoffee&logoColor=black)](https://www.buymeacoffee.com/jihwankim)
+[![Microsoft MVP](https://img.shields.io/badge/Microsoft-MVP-5E5E5E?logo=microsoft)](https://mvp.microsoft.com/en-us/PublicProfile/5005958)
+
+### If Model Lenz saves you a model review, sponsor a few minutes back
+
+[![Sponsor on GitHub](https://img.shields.io/badge/GitHub_Sponsors-%E2%9D%A4-EA4AAA?style=for-the-badge&logo=github-sponsors&logoColor=white)](https://github.com/sponsors/JonathanJihwanKim)
+[![Buy Me a Coffee](https://img.shields.io/badge/Buy_Me_A_Coffee-%E2%98%95-FFDD00?style=for-the-badge&logo=buymeacoffee&logoColor=black)](https://www.buymeacoffee.com/jihwankim)
+
+---
+
+## Try it in 30 seconds (no clone needed)
 
 ```bash
 uv tool install model-lenz       # or: pipx install model-lenz
 model-lenz demo                  # opens a built-in 5-table demo in your browser
 ```
 
-That's it. **Nothing to clone, nothing to download from GitHub.** The wheel includes the CLI, a pre-built React UI, and a tiny demo PBIP — all you need to see the tool in action.
+> **Nothing to clone. Nothing to download from GitHub.** The wheel ships the CLI, a pre-built React UI, and a tiny demo PBIP. From zero to graph in about thirty seconds.
 
-To analyse your own Power BI project:
+Got your own PBIP folder? Jump to [Run it on your model](#run-it-on-your-model).
 
-```bash
-model-lenz serve path/to/MyReport-pbip-folder    # the folder containing MyReport.pbip
-```
+---
 
-(See [What path do I point at?](#what-path-do-i-point-at) below for the exact folder.)
+## Who is this for?
+
+Model Lenz is built for the two people who keep looking at the same Power BI model from opposite sides of the same wall.
+
+### Power BI developers
+
+Click any measure and the graph lights up with:
+
+- **Direct table refs** (solid edges) — parsed straight from the DAX expression.
+- **Indirect tables** (dashed edges, with `*:1` / `1:*` / `↔` glyphs) — every table the measure transitively touches through active relationships.
+- **`USERELATIONSHIP(...)` overrides** honored per-measure.
+- Calculation groups, calculated columns, and User Defined Functions all included.
+
+Catches the *"this measure only mentions Sales but breaks the moment someone slices by Date"* class of bug before review.
+
+### Data engineers
+
+Flip the global **Semantic ↔ Source** toggle. Every PBIP table label swaps to its source-system identifier — `report_sales.fact_orders_combined` on BigQuery, `dbo.DimCustomer` on SQL Server, the full Snowflake path, the SharePoint URL — with confidence labels for each resolution. Per-partition M-query lineage including native SQL.
+
+> Both views are the same graph. That's the point — when you talk to each other in a PR or a Slack thread, you are not pointing at different pictures.
 
 ---
 
@@ -32,14 +65,9 @@ For every measure (including User Defined Functions, calculated columns, and cal
 - **Indirect tables** — every table reachable from the direct refs by walking *active* relationships, with cardinality (`*:1`, `1:*`), crossfilter direction (single / `↔`), and inactive-rel handling via `USERELATIONSHIP(…)` hints.
 - **Source lineage** — for each PBIP table, the source-system table it ultimately loads from (e.g. `report_sales.fact_orders_combined` on BigQuery), with confidence labels.
 
-There's a global **Semantic ↔ Source** toggle so the same graph reads naturally for both audiences:
-
-- **Power BI developers** see PBIP-side table names — the model as it appears in Desktop.
-- **Data engineers** see source-system identifiers — the model as it appears in the warehouse.
-
 ---
 
-## Install
+## Run it on your model
 
 You only need Python 3.10+. Pick whichever installer you have — they all end with the same `model-lenz` command on your PATH.
 
@@ -150,7 +178,7 @@ Sales\                                      ← THIS is the PBIP root — point 
 
 | Path you pass                                      | Works? | Notes                                     |
 |----------------------------------------------------|--------|--------------------------------------------|
-| `Sales`  *(the PBIP root, containing `Sales.pbip`)*| ✅ recommended | Future v0.2 PBIR scanning needs this folder so it can also find `Sales.Report\`. |
+| `Sales`  *(the PBIP root, containing `Sales.pbip`)*| ✅ recommended | Needed when v0.2 PBIR scanning lands, so it can also find `Sales.Report\`. |
 | `Sales\Sales.SemanticModel`                         | ✅      | Skips report-side discovery.               |
 | `Sales\Sales.SemanticModel\definition`              | ✅      | Same as above.                             |
 
@@ -186,14 +214,16 @@ Commands:
 
 ---
 
-## Try it in 30 seconds (no clone needed)
+## A guided 30-second tour
 
 ```bash
 uv tool install model-lenz   # or: pipx install model-lenz
 model-lenz demo              # opens the bundled demo in your browser
 ```
 
-The bundled demo is a hand-authored 5-table model (Date, Customer, Product, Sales_fct, Measure) with seven measures — including a `USERELATIONSHIP` example, a transitive measure chain (`Margin% → Margin → [Total Sales]/[Total Cost]`), and a SQL-native-query lineage. Click *Margin %* in the left sidebar and watch the dashed edges light up across all three dimensions, even though the expression itself only mentions other measures.
+The bundled demo is a hand-authored 5-table model (Date, Customer, Product, Sales_fct, Measure) with seven measures — including a `USERELATIONSHIP` example, a transitive measure chain (`Margin% → Margin → [Total Sales]/[Total Cost]`), and a SQL-native-query lineage.
+
+Click **Margin %** in the left sidebar and watch the dashed edges light up across all three dimensions, even though the expression itself only mentions other measures. Toggle **Semantic ↔ Source** in the header — the same graph re-reads in BigQuery / Snowflake / SQL table names.
 
 To run against your own model instead:
 
@@ -221,6 +251,40 @@ model-lenz serve "C:\projects\Sales"   # any PBIP root folder on your disk
 | **Classification** | Heuristic fact / dim / parameter / time / calc-group / other, configurable via a `model_lenz.toml` in the PBIP root. |
 | **Distribution** | Single `pipx`-installable Python wheel; frontend bundle is included (no Node required at install time). |
 | **Read-only** | Model Lenz never modifies your PBIP files. |
+
+---
+
+## Roadmap
+
+Model Lenz exists because Power BI developers and data engineers need to look at the **same** model and have the **same** conversation about it. Everything on this roadmap serves that handshake — surfacing model changes early, in a vocabulary both sides recognize, on a surface both sides can review.
+
+- **v0.2 — Shared review surfaces.**
+  - Calculation groups in the graph view; calc-column visualizations.
+  - **Shareable URLs** that capture the selected measure, Semantic/Source toggle state, and walk depth — paste a link into a PR or Slack thread and both sides land on the exact same view. No more "which view are you looking at?"
+  - **Export to Mermaid / SVG** for embedding sub-graphs in pull requests and design docs.
+
+- **v0.3 — Change-impact conversations.**
+  - **PBIP diff view** — point Model Lenz at two refs (`main` vs `feature/x`) and see which measures' direct *and indirect* table-dependency sets changed. Lets a data engineer preview which BI measures break before renaming a source column; lets a BI developer show a data engineer exactly which warehouse tables a new measure now reaches.
+  - **Per-measure / per-table Markdown handoff cards** — one-pager exports a BI developer can paste into Jira, Slack, or a PR description when asking the data engineer about a specific column or relationship.
+
+- **v0.4 — Guardrails before the merge.**
+  - **`model-lenz check` for CI** — extend `summary` into a policy-gate command that can fail a build on orphan measures, fact tables sourced from more than one warehouse, ambiguous propagation paths through multiple facts, or measures whose indirect-table set grew by more than N tables in a single commit. Catches anti-patterns at PR time, before they become a review thread.
+  - **Annotation layer on sub-graph exports** — reviewers leave inline comments on an exported SVG/Mermaid sub-graph attached to a PR.
+
+- **Later.** DMV / XMLA mode for deployed semantic models. `.pbix` adapter. Perspective-aware views. Bus-layout (Kimball-style dims-top / facts-left) auto-arrangement for star-schema review.
+
+> **Not on this roadmap by design:** report-layer (PBIR) measure-usage — *which pages and visuals consume each measure*. That's exactly what **[PBIP Lineage Explorer](https://github.com/JonathanJihwanKim/pbip-lineage-explorer)** is for. Use Lineage Explorer for visual → DAX → source-column tracing; use Model Lenz for the model-side dependency picture.
+
+Have something else you'd like to see? Open a [feature request](https://github.com/JonathanJihwanKim/pbip_model_lenz/issues/new?template=feature_request.yml).
+
+---
+
+## Also by Jihwan Kim
+
+- **[PBIP Lineage Explorer](https://github.com/JonathanJihwanKim/pbip-lineage-explorer)** — Trace any visual back to its source columns through DAX. Browser-based, 100% client-side. Use this when the question is *"where does the number on this card actually come from?"*
+- **[PBIP Documenter](https://github.com/JonathanJihwanKim/pbip-documenter)** — Generate bidirectional documentation (measures, tables, relationships, M-steps, native SQL) from PBIP/TMDL in seconds. Use this when the question is *"can I hand someone a readable spec of this model without writing one?"*
+
+Together with Model Lenz, the three tools cover the model side, the report side, and the documentation side of a PBIP project without overlap.
 
 ---
 
@@ -268,14 +332,21 @@ Default walk depth is 2 hops, which captures the typical star or snowflake. Adju
 
 ---
 
-## Roadmap
+## Support development
 
-- **v0.2** — Calculation groups in the graph view; calc-column visualizations; export-to-Mermaid.
-- **v0.3** — Report-layer (PBIR) measure usage: which pages and visuals consume each measure.
-- **v0.4** — DMV / XMLA mode: optional connection to a deployed semantic model for runtime-only metadata.
-- Later — `.pbix` adapter, perspective-aware views, sub-graph export for documentation.
+Model Lenz is free, ad-free, and never phones home — every parser, walker, and graph runs on your machine. If it has saved you time on a model review, an audit, or a *"wait, where does this column actually come from?"* conversation, consider sponsoring development:
 
-Have something else you'd like to see? Open a [feature request](https://github.com/JonathanJihwanKim/pbip_model_lenz/issues/new?template=feature_request.yml).
+- **[❤ GitHub Sponsors](https://github.com/sponsors/JonathanJihwanKim)** — recurring $2 / $5 / $10 / $25 / $50 per month. Top tier includes a 30-minute monthly call with a Microsoft MVP.
+- **[☕ Buy Me a Coffee](https://www.buymeacoffee.com/jihwankim)** — one-time contributions, any amount.
+
+Sponsorship funds: new connector parsers (Snowflake-native-SQL, Databricks, Synapse), CI-mode policy gates, and v0.3 PBIP-diff work.
+
+[![Sponsor on GitHub](https://img.shields.io/badge/GitHub_Sponsors-%E2%9D%A4-EA4AAA?style=for-the-badge&logo=github-sponsors&logoColor=white)](https://github.com/sponsors/JonathanJihwanKim)
+[![Buy Me a Coffee](https://img.shields.io/badge/Buy_Me_A_Coffee-%E2%98%95-FFDD00?style=for-the-badge&logo=buymeacoffee&logoColor=black)](https://www.buymeacoffee.com/jihwankim)
+
+### Hall of Sponsors
+
+*Your name here — sponsor at the $10+ tier and you'll be listed (with your consent) here on the README and on the project website.*
 
 ---
 
