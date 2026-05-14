@@ -4,6 +4,7 @@ import { Sidebar } from "./components/Sidebar";
 import { DetailPanel } from "./components/DetailPanel";
 import { Legend } from "./components/Legend";
 import { PinnedBar } from "./components/PinnedBar";
+import { Toaster } from "./components/Toaster";
 import { ForceGraph } from "./graph/ForceGraph";
 import { useStore } from "./store";
 
@@ -49,6 +50,7 @@ export function App() {
         </main>
         <DetailPanel />
       </div>
+      <Toaster />
     </div>
   );
 }
