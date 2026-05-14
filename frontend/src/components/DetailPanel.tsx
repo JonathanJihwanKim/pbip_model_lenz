@@ -1,0 +1,315 @@
+import { useEffect, useMemo, useState } from "react";
+import hljs from "highlight.js/lib/core";
+import sql from "highlight.js/lib/languages/sql";
+
+import { api } from "../api/client";
+import type { TableDetail } from "../api/types";
+import { useStore } from "../store";
+import { cardinalityGlyph } from "../graph/edgeStyles";
+
+hljs.registerLanguage("sql", sql);
+
+export function DetailPanel() {
+  const selection = useStore((s) => s.selection);
+  const measureGraph = useStore((s) => s.measureGraph);
+  const measureGraphLoading = useStore((s) => s.measureGraphLoading);
+  const clearSelection = useStore((s) => s.clearSelection);
+  const pinSelection = useStore((s) => s.pinSelection);
+  const view = useStore((s) => s.view);
+
+  if (!selection) return null;
+
+  return (
+    <aside className="detail-panel">
+      <div className="detail-header">
+        <div>
+          <div className="detail-kind">
+            {selection.kind === "measure" ? "Measure" : "Table"}
+          </div>
+          <div className="detail-name">{selection.name}</div>
+          {selection.table && <div className="detail-sub">{selection.table}</div>}
+        </div>
+        <div className="detail-actions">
+          <button onClick={pinSelection} title="Pin to compare with another selection">
+            Pin
+          </button>
+          <button onClick={clearSelection} aria-label="Close" className="icon-btn">
+            ×
+          </button>
+        </div>
+      </div>
+
+      {selection.kind === "measure" && (
+        <MeasureDetails loading={measureGraphLoading} graph={measureGraph} view={view} />
+      )}
+      {selection.kind === "table" && <TableDetailsLoader name={selection.name} view={view} />}
+    </aside>
+  );
+}
+
+function MeasureDetails({
+  loading,
+  graph,
+  view,
+}: {
+  loading: boolean;
+  graph: ReturnType<typeof useStore.getState>["measureGraph"];
+  view: "semantic" | "source";
+}) {
+  const tables = useStore((s) => s.tables);
+  const tableLookup = useMemo(() => new Map(tables.map((t) => [t.name, t])), [tables]);
+
+  if (loading || !graph) return <p className="muted">Loading…</p>;
+
+  const fmt = (name: string) => {
+    if (view === "source") {
+      const t = tableLookup.get(name);
+      return t?.source_table ?? name;
+    }
+    return name;
+  };
+
+  return (
+    <div className="detail-body">
+      <Section title="DAX expression">
+        <pre className="dax">{graph.measure.expression || "(empty)"}</pre>
+        <div className="meta-row">
+          {graph.measure.formatString && (
+            <Meta label="Format" value={graph.measure.formatString} />
+          )}
+          {graph.measure.displayFolder && (
+            <Meta label="Folder" value={graph.measure.displayFolder} />
+          )}
+        </div>
+      </Section>
+
+      <Section title={`Direct tables (${graph.direct_tables.length})`}>
+        {graph.direct_tables.length === 0 && <p className="muted">None</p>}
+        <div className="chip-row">
+          {graph.direct_tables.map((t) => (
+            <span key={t} className="chip on solid" title={t}>
+              {fmt(t)}
+            </span>
+          ))}
+        </div>
+      </Section>
+
+      {graph.referenced_measures.length > 0 && (
+        <Section title={`Referenced measures (${graph.referenced_measures.length})`}>
+          <ul className="list">
+            {graph.referenced_measures.map((m) => (
+              <li key={`${m.table}::${m.name}`}>
+                <strong>{m.name}</strong>
+                <span className="muted"> · {m.table}</span>
+              </li>
+            ))}
+          </ul>
+        </Section>
+      )}
+
+      {graph.userel_hints.length > 0 && (
+        <Section title="USERELATIONSHIP overrides">
+          <ul className="list">
+            {graph.userel_hints.map((h, i) => (
+              <li key={i}>
+                <code className="mono">{h.from}</code> → <code className="mono">{h.to}</code>
+              </li>
+            ))}
+          </ul>
+        </Section>
+      )}
+
+      <Section title={`Indirect tables (${graph.indirect_tables.length})`}>
+        {graph.indirect_tables.length === 0 && (
+          <p className="muted">No tables reachable through relationships.</p>
+        )}
+        <ul className="list indirect-list">
+          {graph.indirect_tables.map((it) => (
+            <li key={it.table}>
+              <div className="indirect-head">
+                <strong>{fmt(it.table)}</strong>
+                <span className="badge">d{it.depth}</span>
+                {it.ambiguous && (
+                  <span className="badge ambiguous">ambiguous</span>
+                )}
+                {it.crosses_fact && (
+                  <span className="badge warn">crosses fact</span>
+                )}
+              </div>
+              {it.paths.map((p, i) => (
+                <div key={i} className="path">
+                  {p.hops.map((h, j) => (
+                    <span key={j}>
+                      <code className="mono">
+                        {fmt(h.from_table)}[{h.from_column}]
+                      </code>
+                      <span className="path-arrow">
+                        {" "}
+                        →({cardinalityGlyph(h.cardinality)}){h.crossfilter === "both" ? "↔" : ""}{" "}
+                        {!h.is_active && "(inactive) "}
+                      </span>
+                      {j === p.hops.length - 1 && (
+                        <code className="mono">
+                          {fmt(h.to_table)}[{h.to_column}]
+                        </code>
+                      )}
+                    </span>
+                  ))}
+                </div>
+              ))}
+            </li>
+          ))}
+        </ul>
+      </Section>
+
+      {graph.warnings.length > 0 && (
+        <Section title="Warnings">
+          <ul className="list warn-list">
+            {graph.warnings.map((w, i) => (
+              <li key={i}>{w}</li>
+            ))}
+          </ul>
+        </Section>
+      )}
+    </div>
+  );
+}
+
+function TableDetailsLoader({ name, view }: { name: string; view: "semantic" | "source" }) {
+  const [detail, setDetail] = useState<TableDetail | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setDetail(null);
+    setError(null);
+    api.tableDetail(name).then(setDetail).catch((e) => setError(String(e)));
+  }, [name]);
+
+  if (error) return <p className="muted">Error: {error}</p>;
+  if (!detail) return <p className="muted">Loading…</p>;
+
+  const t = detail.table;
+  const lineage = t.partitions[0]?.source_lineage;
+
+  return (
+    <div className="detail-body">
+      <Section title="Classification">
+        <span className={`chip on dot-${t.classification}`}>{t.classification}</span>
+        {t.is_hidden && <span className="badge">hidden</span>}
+      </Section>
+
+      {lineage && (
+        <Section title="Source lineage">
+          <div className="lineage-card">
+            <div className="lineage-row">
+              <span className="muted">Connector</span>
+              <span>{lineage.connector ?? "—"}</span>
+            </div>
+            <div className="lineage-row">
+              <span className="muted">Schema</span>
+              <span>{lineage.schema ?? "—"}</span>
+            </div>
+            <div className="lineage-row">
+              <span className="muted">Table</span>
+              <span>{lineage.table ?? "—"}</span>
+            </div>
+            <div className="lineage-row">
+              <span className="muted">Confidence</span>
+              <span className={`badge conf-${lineage.confidence}`}>{lineage.confidence}</span>
+            </div>
+            {lineage.upstream_expressions.length > 0 && (
+              <div className="lineage-row">
+                <span className="muted">Upstream</span>
+                <span>{lineage.upstream_expressions.join(" → ")}</span>
+              </div>
+            )}
+            {lineage.sql && (
+              <pre
+                className="sql"
+                dangerouslySetInnerHTML={{
+                  __html: hljs.highlight(lineage.sql, { language: "sql" }).value,
+                }}
+              />
+            )}
+            {lineage.transformed_steps.length > 0 && (
+              <div className="lineage-row">
+                <span className="muted">Steps</span>
+                <span>{lineage.transformed_steps.join(" → ")}</span>
+              </div>
+            )}
+          </div>
+        </Section>
+      )}
+
+      <Section title={`Columns (${t.columns.length})`}>
+        <ul className="list compact">
+          {t.columns.slice(0, 20).map((c) => (
+            <li key={c.name}>
+              <strong>{c.name}</strong>
+              <span className="muted"> · {c.data_type ?? "?"}</span>
+              {c.is_fk && <span className="badge mini">FK</span>}
+              {c.is_hidden && <span className="badge mini">hidden</span>}
+              {c.expression && <span className="badge mini">calc</span>}
+            </li>
+          ))}
+          {t.columns.length > 20 && (
+            <li className="muted">… {t.columns.length - 20} more</li>
+          )}
+        </ul>
+      </Section>
+
+      {t.measures.length > 0 && (
+        <Section title={`Measures hosted (${t.measures.length})`}>
+          <ul className="list compact">
+            {t.measures.slice(0, 12).map((m) => (
+              <li key={m.name}>{m.name}</li>
+            ))}
+            {t.measures.length > 12 && (
+              <li className="muted">… {t.measures.length - 12} more</li>
+            )}
+          </ul>
+        </Section>
+      )}
+
+      <Section title={`Relationships (${detail.relationships.length})`}>
+        <ul className="list compact">
+          {detail.relationships.map((r) => {
+            const labelize = (table: string) => {
+              if (view === "source") return table;
+              return table;
+            };
+            return (
+              <li key={r.id}>
+                <code className="mono">
+                  {labelize(r.from_table)}[{r.from_column}]
+                </code>{" "}
+                →({cardinalityGlyph(r.cardinality)}){r.crossfilter === "both" ? "↔" : ""}{" "}
+                <code className="mono">
+                  {labelize(r.to_table)}[{r.to_column}]
+                </code>
+                {!r.is_active && <span className="badge mini">inactive</span>}
+              </li>
+            );
+          })}
+        </ul>
+      </Section>
+    </div>
+  );
+}
+
+function Section({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <section className="detail-section">
+      <h3>{title}</h3>
+      {children}
+    </section>
+  );
+}
+
+function Meta({ label, value }: { label: string; value: string }) {
+  return (
+    <span className="meta-pill">
+      <span className="muted">{label}:</span> {value}
+    </span>
+  );
+}
