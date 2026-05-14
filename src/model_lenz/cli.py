@@ -87,6 +87,19 @@ def version_cmd() -> None:
     typer.echo(__version__)
 
 
+@app.command()
+def serve(
+    pbip_path: Path = typer.Argument(..., exists=True, help="Path to a PBIP project."),
+    host: str = typer.Option("127.0.0.1", "--host", "-H", help="Bind host."),
+    port: int = typer.Option(0, "--port", "-p", help="Bind port (0 = auto)."),
+    no_browser: bool = typer.Option(False, "--no-browser", help="Don't open a browser."),
+) -> None:
+    """Start the local web server and open the model in a browser."""
+    from model_lenz.server import serve as _serve
+
+    _serve(pbip_path, host=host, port=port, open_browser=not no_browser)
+
+
 def main() -> None:  # pragma: no cover
     app()
 
