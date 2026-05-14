@@ -108,6 +108,90 @@ function sortDims(
   });
 }
 
+/** Reposition snowflake dims (dims with no fact relationships but at least
+ *  one dim↔dim edge) to sit immediately after their primary parent in the
+ *  row. The "parent" is the dim they share the most edges with; ties resolved
+ *  by parent label.
+ *
+ *  Process snowflakes in BFS order from primary dims so chains nest correctly
+ *  (snowflake → snowflake → primary still ends up adjacent to the primary).
+ *  Truly disconnected dims (no facts AND no dim-dim edges) keep their
+ *  alphabetical tail position from the primary sort.
+ */
+function clusterSnowflakes(
+  ordered: PositionableNode[],
+  factRelCount: Map<string, number>,
+  dimDimEdges: Map<string, Map<string, number>>,
+): PositionableNode[] {
+  const isSnowflake = (n: PositionableNode) =>
+    (factRelCount.get(n.id) ?? 0) === 0 && (dimDimEdges.get(n.id)?.size ?? 0) > 0;
+
+  const primaries = ordered.filter((n) => !isSnowflake(n));
+  const snowflakes = ordered.filter((n) => isSnowflake(n));
+  if (snowflakes.length === 0) return ordered;
+
+  // Working list of placed dims in their final order. Start with the primary
+  // ordering; we'll splice snowflakes in next to their parents.
+  const placed: PositionableNode[] = [...primaries];
+  const placedIds = new Set(placed.map((n) => n.id));
+  const remaining = new Set(snowflakes.map((n) => n.id));
+
+  // Helper: find the parent ID for a snowflake — the dim it shares the most
+  // edges with that's already placed. Tie-break by parent label (stable).
+  const pickParent = (sf: PositionableNode): string | null => {
+    const links = dimDimEdges.get(sf.id);
+    if (!links) return null;
+    let best: { id: string; count: number; label: string } | null = null;
+    for (const [otherId, count] of links) {
+      if (!placedIds.has(otherId)) continue;
+      const otherLabel = ordered.find((n) => n.id === otherId)?.label ?? "";
+      if (
+        !best ||
+        count > best.count ||
+        (count === best.count && otherLabel.localeCompare(best.label) < 0)
+      ) {
+        best = { id: otherId, count, label: otherLabel };
+      }
+    }
+    return best?.id ?? null;
+  };
+
+  // BFS-ish: keep looping until no snowflake can be placed (chain done or
+  // orphaned). Within a pass, place every snowflake whose parent is already
+  // placed, in deterministic order.
+  let progress = true;
+  while (progress && remaining.size > 0) {
+    progress = false;
+    const placeable: Array<{ sf: PositionableNode; parentId: string }> = [];
+    for (const id of remaining) {
+      const sf = snowflakes.find((n) => n.id === id);
+      if (!sf) continue;
+      const parentId = pickParent(sf);
+      if (parentId) placeable.push({ sf, parentId });
+    }
+    // Stable order so layout is deterministic across renders.
+    placeable.sort((a, b) => a.sf.label.localeCompare(b.sf.label));
+    for (const { sf, parentId } of placeable) {
+      const parentIdx = placed.findIndex((n) => n.id === parentId);
+      if (parentIdx === -1) continue;
+      placed.splice(parentIdx + 1, 0, sf);
+      placedIds.add(sf.id);
+      remaining.delete(sf.id);
+      progress = true;
+    }
+  }
+
+  // Any snowflake whose parent never got placed (shouldn't happen, but
+  // defensive) falls to the end alphabetically.
+  if (remaining.size > 0) {
+    const orphans = snowflakes
+      .filter((n) => remaining.has(n.id))
+      .sort((a, b) => a.label.localeCompare(b.label));
+    placed.push(...orphans);
+  }
+  return placed;
+}
+
 /** Sort facts by descending dim-rel count, then alphabetical.
  *
  * Same focus-aware behavior as sortDims: focused facts pack to the top of
@@ -149,7 +233,19 @@ export function computeBusLayout(
   // Count cross-zone relationships per visible node (used for sort weight).
   const dimRelCount = new Map<string, number>();
   const factRelCount = new Map<string, number>();
+  // Snowflake adjacency: per-dim, count of edges to each *other* dim. Used
+  // after the primary sort to slot snowflake children next to their parent.
+  const dimDimEdges = new Map<string, Map<string, number>>();
   const nodeById = new Map(nodes.map((n) => [n.id, n]));
+
+  const bumpDimDim = (a: string, b: string) => {
+    let m = dimDimEdges.get(a);
+    if (!m) {
+      m = new Map();
+      dimDimEdges.set(a, m);
+    }
+    m.set(b, (m.get(b) ?? 0) + 1);
+  };
 
   for (const e of edges) {
     const s = nodeById.get(e.source);
@@ -162,15 +258,19 @@ export function computeBusLayout(
     } else if (isDimZone(s.classification) && isFactZone(t.classification)) {
       factRelCount.set(s.id, (factRelCount.get(s.id) ?? 0) + 1);
       dimRelCount.set(t.id, (dimRelCount.get(t.id) ?? 0) + 1);
+    } else if (isDimZone(s.classification) && isDimZone(t.classification) && s.id !== t.id) {
+      bumpDimDim(s.id, t.id);
+      bumpDimDim(t.id, s.id);
     }
   }
 
   const visible = nodes.filter((n) => visibleIds.has(n.id));
-  const dims = sortDims(
+  let dims = sortDims(
     visible.filter((n) => isDimZone(n.classification)),
     factRelCount,
     focusedIds,
   );
+  dims = clusterSnowflakes(dims, factRelCount, dimDimEdges);
   const facts = sortFacts(
     visible.filter((n) => isFactZone(n.classification)),
     dimRelCount,
