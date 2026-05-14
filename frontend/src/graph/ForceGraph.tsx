@@ -35,6 +35,7 @@ import {
   isFactZone,
   lShapedEdgePath,
   type NodePosition,
+  type Orientation,
   type PositionableNode,
 } from "./busLayout";
 
@@ -105,6 +106,23 @@ export function ForceGraph() {
     return visible;
   }, [tables, classFilter, selection, measureGraph, relationships]);
 
+  // Orientation: when the visible subgraph is dim-heavy (more dims than
+  // facts), swap so dims become the left column and facts the top row.
+  // Avoids the wide-thin bbox that auto-fit would otherwise have to shrink
+  // to illegibility. No-selection (overview) view keeps the default since
+  // it shows the whole model.
+  const orientation: Orientation = useMemo(() => {
+    if (!selection) return "dims-row";
+    let dimCount = 0;
+    let factCount = 0;
+    for (const t of tables) {
+      if (!visibleNodeIds.has(`t:${t.name}`)) continue;
+      if (isDimZone(t.classification)) dimCount++;
+      else if (isFactZone(t.classification)) factCount++;
+    }
+    return dimCount > factCount ? "dims-col" : "dims-row";
+  }, [tables, visibleNodeIds, selection]);
+
   const layout = useMemo(() => {
     const tableLookup = new Map(tables.map((t) => [t.name, t]));
 
@@ -123,7 +141,14 @@ export function ForceGraph() {
         rel: r,
       }));
 
-    const positions = computeBusLayout(nodes, edges, visibleNodeIds);
+    const positions = computeBusLayout(
+      nodes,
+      edges,
+      visibleNodeIds,
+      DEFAULT_LAYOUT,
+      null,
+      orientation,
+    );
 
     const nodeViews: NodeView[] = tables.map((t) => {
       const id = `t:${t.name}`;
@@ -159,7 +184,7 @@ export function ForceGraph() {
       .filter((e) => e.visible);
 
     return { nodes: nodeViews, edges: edgeViews, positions };
-  }, [tables, relationships, visibleNodeIds]);
+  }, [tables, relationships, visibleNodeIds, orientation]);
 
   // Spotlight: when a measure is selected and its graph is loaded, build
   // (a) a synthetic "measure" node in the top-left corner, and
@@ -185,23 +210,35 @@ export function ForceGraph() {
       x: DEFAULT_LAYOUT.originX,
       y: DEFAULT_LAYOUT.originY,
     };
-    // Direct-ref edges go from the measure node to each direct table card's
-    // top-left corner (rough approximation — use a curve that doesn't fight
-    // the bus L-shapes).
+    // Direct-ref edges from the synthetic measure card to each direct table.
+    // Bezier attaches to the side of the target that matches its zone:
+    //   - row card (top row): attach to its LEFT edge, leave from measure's RIGHT
+    //   - col card (left col): attach to its TOP edge, leave from measure's BOTTOM
     const directEdges = measureGraph.direct_tables
       .map((tname) => {
         const id = `t:${tname}`;
         const t = layout.nodes.find((n) => n.id === id);
         if (!t) return null;
-        const fromX = measureNode.x + CARD_W / 2;
-        const fromY = measureNode.y + CARD_H / 2 + 4;
-        const toX = t.position.x - CARD_W / 2;
-        const toY = t.position.y;
-        // Smooth Bezier curve so direct refs don't compete with the L-shapes.
-        const midX = (fromX + toX) / 2;
+        const targetInRow = t.position.zone === "dim-row" || t.position.zone === "fact-row";
+        let fromX: number, fromY: number, toX: number, toY: number, ctrl: string;
+        if (targetInRow) {
+          fromX = measureNode.x + CARD_W / 2;
+          fromY = measureNode.y;
+          toX = t.position.x - CARD_W / 2;
+          toY = t.position.y;
+          const midX = (fromX + toX) / 2;
+          ctrl = `${midX},${fromY} ${midX},${toY}`;
+        } else {
+          fromX = measureNode.x;
+          fromY = measureNode.y + CARD_H / 2;
+          toX = t.position.x;
+          toY = t.position.y - CARD_H / 2;
+          const midY = (fromY + toY) / 2;
+          ctrl = `${fromX},${midY} ${toX},${midY}`;
+        }
         return {
           id: `direct:${tname}`,
-          path: `M ${fromX},${fromY} C ${midX},${fromY} ${midX},${toY} ${toX},${toY}`,
+          path: `M ${fromX},${fromY} C ${ctrl} ${toX},${toY}`,
         };
       })
       .filter((e): e is { id: string; path: string } => e !== null);
@@ -516,18 +553,36 @@ export function ForceGraph() {
             </g>
           )}
 
-          {/* Zone labels */}
-          <ZoneLabel
-            text="DIMENSIONS / TIME"
-            x={DEFAULT_LAYOUT.originX + DEFAULT_LAYOUT.factToFirstDimGap - 30}
-            y={DEFAULT_LAYOUT.originY - 36}
-          />
-          <ZoneLabel
-            text="FACTS"
-            x={DEFAULT_LAYOUT.originX - 50}
-            y={DEFAULT_LAYOUT.originY + DEFAULT_LAYOUT.dimToFirstFactGap - 8}
-            rotate={-90}
-          />
+          {/* Zone labels — flip when orientation swaps. */}
+          {orientation === "dims-row" ? (
+            <>
+              <ZoneLabel
+                text="DIMENSIONS / TIME"
+                x={DEFAULT_LAYOUT.originX + DEFAULT_LAYOUT.factToFirstDimGap - 30}
+                y={DEFAULT_LAYOUT.originY - 36}
+              />
+              <ZoneLabel
+                text="FACTS"
+                x={DEFAULT_LAYOUT.originX - 50}
+                y={DEFAULT_LAYOUT.originY + DEFAULT_LAYOUT.dimToFirstFactGap - 8}
+                rotate={-90}
+              />
+            </>
+          ) : (
+            <>
+              <ZoneLabel
+                text="FACTS"
+                x={DEFAULT_LAYOUT.originX + DEFAULT_LAYOUT.factToFirstDimGap - 30}
+                y={DEFAULT_LAYOUT.originY - 36}
+              />
+              <ZoneLabel
+                text="DIMENSIONS / TIME"
+                x={DEFAULT_LAYOUT.originX - 50}
+                y={DEFAULT_LAYOUT.originY + DEFAULT_LAYOUT.dimToFirstFactGap - 8}
+                rotate={-90}
+              />
+            </>
+          )}
         </g>
       </svg>
       <div ref={tooltipRef} className="graph-tooltip" />

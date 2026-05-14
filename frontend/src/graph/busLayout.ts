@@ -2,19 +2,20 @@
  * Bus Layout positioning — Collin Tsui's "Bus Layout" technique adapted for
  * Model Lenz's force-graph component.
  *
- * Three positional zones:
- *   - DIMENSION TABLES occupy the TOP ROW (left → right).
- *   - FACT TABLES occupy the LEFT COLUMN (top → bottom).
- *   - DISCONNECTED TABLES (parameters, calc groups, standalones) sit in a
- *     right-side column, off to the side.
+ * Two orientations:
+ *   - "dims-row" (default): dimensions occupy the TOP ROW, facts the LEFT
+ *     COLUMN. The Bus Layout convention.
+ *   - "dims-col" (swapped): dimensions occupy the LEFT COLUMN, facts the TOP
+ *     ROW. Picked automatically by the caller when the visible subgraph is
+ *     dim-heavy (e.g. 11 dims + 2 facts) so a wide-thin bbox doesn't force
+ *     auto-fit to shrink the cards into illegibility.
  *
- * Calendar/Time tables are placed first in the dim row (they relate to almost
- * every fact). Facts are sorted by relationship count (most connected first)
- * so the "spine" of the model reads top-down.
+ * Calendar/Time tables are placed first in the dim row/column (they relate
+ * to almost every fact). Facts are sorted by relationship count (most
+ * connected first) so the "spine" of the model reads first-to-last.
  *
- * Output: a `Map<nodeId, {x, y}>` you set as `fx`/`fy` on the simulation
- * nodes. The d3-force simulation then doesn't move them — the positions are
- * pinned. Pan/zoom still works.
+ * Output: a `Map<nodeId, {x, y, zone}>` consumed by ForceGraph. Pan/zoom
+ * still works; positions are pinned.
  */
 
 import type { Classification } from "../api/types";
@@ -31,10 +32,22 @@ export interface PositionableEdge {
   target: string;
 }
 
+export type Orientation = "dims-row" | "dims-col";
+
 export interface NodePosition {
   x: number;
   y: number;
-  zone: "dim-row" | "fact-col" | "disconnected" | "hidden";
+  /** Which positional zone this node lives in. The L-shape edge logic
+   *  reads both endpoints' zones to pick the right bend direction; the
+   *  zone names encode orientation so downstream helpers don't need to
+   *  thread the orientation parameter through. */
+  zone:
+    | "dim-row"
+    | "dim-col"
+    | "fact-row"
+    | "fact-col"
+    | "disconnected"
+    | "hidden";
 }
 
 export interface BusLayoutOptions {
@@ -220,8 +233,11 @@ function sortFacts(
  * simulation doesn't NaN out.
  *
  * `focusedIds` (optional): when non-null, dims/facts whose IDs are in the set
- *  pack to the front of their respective zones. Used by the "Pack related
- *  tables" toggle so the user can opt into selection-driven reordering.
+ *  pack to the front of their respective zones.
+ *
+ * `orientation`: "dims-row" (default) puts dims on top, facts on left.
+ *  "dims-col" swaps them — used when the visible subgraph is dim-heavy so
+ *  auto-fit doesn't squash the cards.
  */
 export function computeBusLayout(
   nodes: PositionableNode[],
@@ -229,6 +245,7 @@ export function computeBusLayout(
   visibleIds: Set<string>,
   opts: BusLayoutOptions = DEFAULT_LAYOUT,
   focusedIds: Set<string> | null = null,
+  orientation: Orientation = "dims-row",
 ): Map<string, NodePosition> {
   // Count cross-zone relationships per visible node (used for sort weight).
   const dimRelCount = new Map<string, number>();
@@ -282,38 +299,64 @@ export function computeBusLayout(
 
   const positions = new Map<string, NodePosition>();
 
-  const dimRowY = opts.originY;
-  const factColX = opts.originX;
-  const firstDimX = opts.originX + opts.factToFirstDimGap;
-  const firstFactY = dimRowY + opts.dimToFirstFactGap;
+  // Spacing constants are named for the DEFAULT orientation. In dims-col
+  // mode the dim axis becomes vertical (use the tighter factSpacing) and
+  // the fact axis becomes horizontal (use the wider dimSpacing).
+  const rowSpacing = opts.dimSpacing; // for whatever class lives in the row
+  const colSpacing = opts.factSpacing; // for whatever class lives in the column
 
-  dims.forEach((n, i) => {
-    positions.set(n.id, {
-      x: firstDimX + i * opts.dimSpacing,
-      y: dimRowY,
-      zone: "dim-row",
+  const rowY = opts.originY;
+  const colX = opts.originX;
+  const rowStartX = opts.originX + opts.factToFirstDimGap;
+  const colStartY = rowY + opts.dimToFirstFactGap;
+
+  if (orientation === "dims-row") {
+    dims.forEach((n, i) => {
+      positions.set(n.id, {
+        x: rowStartX + i * rowSpacing,
+        y: rowY,
+        zone: "dim-row",
+      });
     });
-  });
-
-  facts.forEach((n, i) => {
-    positions.set(n.id, {
-      x: factColX,
-      y: firstFactY + i * opts.factSpacing,
-      zone: "fact-col",
+    facts.forEach((n, i) => {
+      positions.set(n.id, {
+        x: colX,
+        y: colStartY + i * colSpacing,
+        zone: "fact-col",
+      });
     });
-  });
+  } else {
+    // dims-col: dims become the left column, facts become the top row.
+    dims.forEach((n, i) => {
+      positions.set(n.id, {
+        x: colX,
+        y: colStartY + i * colSpacing,
+        zone: "dim-col",
+      });
+    });
+    facts.forEach((n, i) => {
+      positions.set(n.id, {
+        x: rowStartX + i * rowSpacing,
+        y: rowY,
+        zone: "fact-row",
+      });
+    });
+  }
 
-  const disconnectedX = firstDimX + Math.max(dims.length, 1) * opts.dimSpacing + 60;
+  // Disconnected zone parks to the right of whatever's in the top row.
+  const rowExtent =
+    orientation === "dims-row" ? dims.length : facts.length;
+  const disconnectedX = rowStartX + Math.max(rowExtent, 1) * rowSpacing + 60;
   disconnected.forEach((n, i) => {
     positions.set(n.id, {
       x: disconnectedX,
-      y: firstFactY + i * opts.factSpacing,
+      y: colStartY + i * colSpacing,
       zone: "disconnected",
     });
   });
 
-  // Hidden nodes — park off-canvas so the simulation has coordinates but they
-  // never render.
+  // Hidden nodes — park off-canvas so downstream code has coordinates but
+  // they never render.
   for (const n of nodes) {
     if (positions.has(n.id)) continue;
     positions.set(n.id, { x: -10000, y: -10000, zone: "hidden" });
@@ -322,18 +365,48 @@ export function computeBusLayout(
   return positions;
 }
 
+function isRowZone(z: NodePosition["zone"]): boolean {
+  return z === "dim-row" || z === "fact-row";
+}
+function isColZone(z: NodePosition["zone"]): boolean {
+  return z === "fact-col" || z === "dim-col";
+}
+function isDimGridZone(z: NodePosition["zone"]): boolean {
+  return z === "dim-row" || z === "dim-col";
+}
+function isFactGridZone(z: NodePosition["zone"]): boolean {
+  return z === "fact-col" || z === "fact-row";
+}
+
+/** Identify which end is the dim and which is the fact, regardless of which
+ *  one was passed as source vs target and regardless of orientation. Returns
+ *  null if the edge isn't a clean dim↔fact (e.g. snowflake dim↔dim, anomaly,
+ *  or one endpoint hidden). */
+function classifyEnds(
+  source: NodePosition,
+  target: NodePosition,
+): { dim: NodePosition; fact: NodePosition } | null {
+  if (isDimGridZone(source.zone) && isFactGridZone(target.zone)) {
+    return { dim: source, fact: target };
+  }
+  if (isFactGridZone(source.zone) && isDimGridZone(target.zone)) {
+    return { dim: target, fact: source };
+  }
+  return null;
+}
+
 /**
  * Compute the L-shaped path for an edge between two positioned nodes.
  *
- * Three flavours, picked by the zones at each end:
- *   - dim → fact (or fact → dim): two-segment L. Vertical leg at the dim's x,
- *     horizontal leg at the fact's y. Bend at (dimX, factY). Endpoint adjusted
- *     to attach to the fact's LEFT edge and the dim's BOTTOM edge.
- *   - fact → fact: rare anomaly. Straight horizontal/vertical line.
- *   - dim → dim (snowflake): rare anomaly. Straight line in the dim row.
- *   - anything else: straight line.
+ * Two valid shapes, picked by which axis the cards live on:
+ *   - dim in ROW (top), fact in COL (left): vertical leg at dim's x,
+ *     horizontal leg at fact's y. Bend at (dimX, factY). Endpoint attaches
+ *     to fact's LEFT edge, start at dim's BOTTOM edge.
+ *   - dim in COL (left), fact in ROW (top): horizontal leg at dim's y,
+ *     vertical leg at fact's x. Bend at (factX, dimY). Endpoint attaches
+ *     to fact's BOTTOM edge, start at dim's RIGHT edge.
  *
- * Returns an SVG path "d" attribute.
+ * Anomalies (dim↔dim, fact↔fact, hidden endpoints) get a straight line.
  */
 export function lShapedEdgePath(
   source: NodePosition,
@@ -341,32 +414,29 @@ export function lShapedEdgePath(
   cardWidth: number,
   cardHeight: number,
 ): string {
-  // Identify which end is the dim and which is the fact. The renderer passes
-  // arbitrary source/target order; we normalize.
-  let dim: NodePosition | null = null;
-  let fact: NodePosition | null = null;
-
-  if (source.zone === "dim-row" && target.zone === "fact-col") {
-    dim = source;
-    fact = target;
-  } else if (source.zone === "fact-col" && target.zone === "dim-row") {
-    dim = target;
-    fact = source;
+  const ends = classifyEnds(source, target);
+  if (!ends) {
+    return `M ${source.x},${source.y} L ${target.x},${target.y}`;
   }
+  const { dim, fact } = ends;
 
-  if (dim && fact) {
+  if (dim.zone === "dim-row") {
+    // Default orientation: dim on top, fact on left.
     const dimBottomY = dim.y + cardHeight / 2;
     const factLeftX = fact.x - cardWidth / 2;
     const factCenterY = fact.y;
     return `M ${dim.x},${dimBottomY} L ${dim.x},${factCenterY} L ${factLeftX},${factCenterY}`;
   }
-
-  // Anomaly or off-grid: straight line between centers (the renderer can flag
-  // these in a different colour to surface them).
-  return `M ${source.x},${source.y} L ${target.x},${target.y}`;
+  // Swapped orientation: dim on left, fact on top.
+  const dimRightX = dim.x + cardWidth / 2;
+  const factCenterX = fact.x;
+  const factBottomY = fact.y + cardHeight / 2;
+  return `M ${dimRightX},${dim.y} L ${factCenterX},${dim.y} L ${factCenterX},${factBottomY}`;
 }
 
-/** Where to place the cardinality glyph for an edge. Returns null if N/A. */
+/** Where to place the cardinality glyph for an edge. Returns null if N/A.
+ *  Glyph sits just inside each card on the edge that the L-shape attaches to,
+ *  so "1" reads next to the dim and "*" next to the fact in both orientations. */
 export function cardinalityGlyphPosition(
   source: NodePosition,
   target: NodePosition,
@@ -374,27 +444,37 @@ export function cardinalityGlyphPosition(
   cardHeight: number,
   whichEnd: "dim" | "fact",
 ): { x: number; y: number } | null {
-  let dim: NodePosition | null = null;
-  let fact: NodePosition | null = null;
-  if (source.zone === "dim-row" && target.zone === "fact-col") {
-    dim = source;
-    fact = target;
-  } else if (source.zone === "fact-col" && target.zone === "dim-row") {
-    dim = target;
-    fact = source;
+  const ends = classifyEnds(source, target);
+  if (!ends) return null;
+  const { dim, fact } = ends;
+
+  if (dim.zone === "dim-row") {
+    if (whichEnd === "dim") {
+      return { x: dim.x + 8, y: dim.y + cardHeight / 2 + 12 };
+    }
+    return { x: fact.x - cardWidth / 2 - 10, y: fact.y - 5 };
   }
-  if (!dim || !fact) return null;
+  // dims-col: glyph for the dim sits to the right of its card; for the fact,
+  // just below it.
   if (whichEnd === "dim") {
-    return { x: dim.x + 8, y: dim.y + cardHeight / 2 + 12 };
+    return { x: dim.x + cardWidth / 2 + 10, y: dim.y - 5 };
   }
-  return { x: fact.x - cardWidth / 2 - 10, y: fact.y - 5 };
+  return { x: fact.x + 8, y: fact.y + cardHeight / 2 + 12 };
 }
 
-/** Decide if an edge is "anomalous" — dim↔dim or fact↔fact instead of dim↔fact. */
+/** Decide if an edge is "anomalous" — dim↔dim or fact↔fact instead of
+ *  dim↔fact. Both orientations need this check; the predicate is now
+ *  expressed in terms of "dim grid zone" and "fact grid zone" so it works
+ *  for both. */
 export function isAnomalousEdge(
   source: NodePosition,
   target: NodePosition,
 ): boolean {
-  if (source.zone === target.zone && source.zone !== "hidden") return true;
+  if (source.zone === "hidden" || target.zone === "hidden") return false;
+  if (isDimGridZone(source.zone) && isDimGridZone(target.zone)) return true;
+  if (isFactGridZone(source.zone) && isFactGridZone(target.zone)) return true;
   return false;
 }
+
+// Re-exports (used by ForceGraph for zone-label positioning decisions).
+export { isRowZone, isColZone };
