@@ -41,9 +41,9 @@ dev = [
 model-lenz = "model_lenz.cli:app"
 
 [project.urls]
-Homepage = "https://github.com/JihwanKim/model-lenz"
-Repository = "https://github.com/JihwanKim/model-lenz"
-Issues = "https://github.com/JihwanKim/model-lenz/issues"
+Homepage = "https://github.com/JonathanJihwanKim/pbip_model_lenz"
+Repository = "https://github.com/JonathanJihwanKim/pbip_model_lenz"
+Issues = "https://github.com/JonathanJihwanKim/pbip_model_lenz/issues"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/model_lenz"]

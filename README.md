@@ -45,8 +45,8 @@ model-lenz serve path/to/MyReport
 ### From source
 
 ```bash
-git clone https://github.com/JihwanKim/model-lenz
-cd model-lenz
+git clone https://github.com/JonathanJihwanKim/pbip_model_lenz
+cd pbip_model_lenz
 uv pip install -e ".[dev]"
 
 cd frontend && npm install && npm run build
@@ -82,8 +82,8 @@ Commands:
 
 ```bash
 pipx install model-lenz
-git clone https://github.com/JihwanKim/model-lenz
-model-lenz serve model-lenz/examples/tiny_pbip
+git clone https://github.com/JonathanJihwanKim/pbip_model_lenz
+model-lenz serve pbip_model_lenz/examples/tiny_pbip
 ```
 
 The included `examples/tiny_pbip` is a hand-authored 5-table model (Date, Customer, Product, Sales_fct, Measure) with seven measures — including a `USERELATIONSHIP` example, a transitive measure chain (`Margin% → Margin → [Total Sales]/[Total Cost]`), and a SQL-native-query lineage. Click *Margin %* in the left sidebar and watch the dashed edges light up across all three dimensions, even though the expression itself only mentions other measures.
@@ -155,7 +155,7 @@ Default walk depth is 2 hops, which captures the typical star or snowflake. Adju
 - **v0.4** — DMV / XMLA mode: optional connection to a deployed semantic model for runtime-only metadata.
 - Later — `.pbix` adapter, perspective-aware views, sub-graph export for documentation.
 
-Have something else you'd like to see? Open a [feature request](https://github.com/JihwanKim/model-lenz/issues/new?template=feature_request.yml).
+Have something else you'd like to see? Open a [feature request](https://github.com/JonathanJihwanKim/pbip_model_lenz/issues/new?template=feature_request.yml).
 
 ---
 
