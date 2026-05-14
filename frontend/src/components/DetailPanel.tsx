@@ -11,16 +11,22 @@ hljs.registerLanguage("sql", sql);
 
 export function DetailPanel() {
   const selection = useStore((s) => s.selection);
+  const selectionHistory = useStore((s) => s.selectionHistory);
   const measureGraph = useStore((s) => s.measureGraph);
   const measureGraphLoading = useStore((s) => s.measureGraphLoading);
   const clearSelection = useStore((s) => s.clearSelection);
   const pinSelection = useStore((s) => s.pinSelection);
+  const goBack = useStore((s) => s.goBack);
   const view = useStore((s) => s.view);
 
   if (!selection) return null;
 
   return (
     <aside className="detail-panel">
+      <ResizeHandle />
+      {selectionHistory.length > 0 && (
+        <Breadcrumbs history={selectionHistory} current={selection.name} />
+      )}
       <div className="detail-header">
         <div>
           <div className="detail-kind">
@@ -30,6 +36,11 @@ export function DetailPanel() {
           {selection.table && <div className="detail-sub">{selection.table}</div>}
         </div>
         <div className="detail-actions">
+          {selectionHistory.length > 0 && (
+            <button onClick={() => void goBack()} title="Back to previous selection">
+              ← Back
+            </button>
+          )}
           <button onClick={pinSelection} title="Pin to compare with another selection">
             Pin
           </button>
@@ -44,6 +55,76 @@ export function DetailPanel() {
       )}
       {selection.kind === "table" && <TableDetailsLoader name={selection.name} view={view} />}
     </aside>
+  );
+}
+
+/** Drill-down trail. Each crumb is clickable; we pop goBack repeatedly until
+ *  we land on the chosen ancestor. */
+function Breadcrumbs({
+  history,
+  current,
+}: {
+  history: import("../store").Selection[];
+  current: string;
+}) {
+  const goBack = useStore((s) => s.goBack);
+  const jumpTo = async (targetIdx: number) => {
+    const popsNeeded = history.length - targetIdx;
+    for (let i = 0; i < popsNeeded; i++) await goBack();
+  };
+  return (
+    <div className="detail-breadcrumbs" aria-label="Drill-down trail">
+      {history.map((h, i) => (
+        <span key={`${h.kind}-${h.table ?? ""}-${h.name}-${i}`}>
+          <button onClick={() => void jumpTo(i)} title={`Back to ${h.name}`}>
+            {h.name}
+          </button>
+          <span className="crumb-sep"> › </span>
+        </span>
+      ))}
+      <span className="crumb-current">{current}</span>
+    </div>
+  );
+}
+
+/** Drag handle on the left edge of the detail panel. Updates a CSS variable
+ *  on document root and persists the chosen width to localStorage. */
+function ResizeHandle() {
+  const [dragging, setDragging] = useState(false);
+
+  useEffect(() => {
+    if (!dragging) return;
+    const onMove = (e: MouseEvent) => {
+      const w = Math.min(720, Math.max(360, window.innerWidth - e.clientX));
+      document.documentElement.style.setProperty("--right-panel-width", `${w}px`);
+    };
+    const onUp = () => {
+      setDragging(false);
+      const cur = document.documentElement.style.getPropertyValue("--right-panel-width");
+      const px = cur.replace("px", "").trim();
+      if (px) localStorage.setItem("model-lenz-right-panel-width", px);
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+    };
+    document.addEventListener("mousemove", onMove);
+    document.addEventListener("mouseup", onUp);
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+    return () => {
+      document.removeEventListener("mousemove", onMove);
+      document.removeEventListener("mouseup", onUp);
+    };
+  }, [dragging]);
+
+  return (
+    <div
+      className={`resize-handle${dragging ? " dragging" : ""}`}
+      onMouseDown={(e) => {
+        e.preventDefault();
+        setDragging(true);
+      }}
+      title="Drag to resize"
+    />
   );
 }
 
@@ -113,7 +194,7 @@ function MeasureDetails({
               <li
                 key={`${m.table}::${m.name}`}
                 className="ref-measure-item"
-                onClick={() => useStore.getState().selectMeasure(m.table, m.name)}
+                onClick={() => void useStore.getState().drillIntoMeasure(m.table, m.name)}
                 title={`Open ${m.name}`}
               >
                 <div className="ref-measure-head">

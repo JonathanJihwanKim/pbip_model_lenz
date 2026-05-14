@@ -37,6 +37,9 @@ interface State {
 
   // Selection.
   selection: Selection | null;
+  /** Drill-down breadcrumb trail. Top of stack is the most recent ancestor;
+   *  empty when the current selection was made fresh from the sidebar/canvas. */
+  selectionHistory: Selection[];
   pinned: Selection[];
   measureGraph: MeasureGraph | null;
   measureGraphLoading: boolean;
@@ -45,12 +48,17 @@ interface State {
   bootstrap: () => Promise<void>;
   setView: (v: ViewMode) => void;
   toggleTheme: () => void;
-  setDepth: (d: number) => void;
+  setDepth: (d: number) => Promise<void>;
   setSearch: (s: string) => void;
   toggleClassFilter: (c: string) => void;
   toggleFolder: (folder: string) => void;
   expandFolder: (folder: string) => void;
+  /** Fresh selection — clears the breadcrumb trail. Use from sidebar/canvas. */
   selectMeasure: (table: string, name: string) => Promise<void>;
+  /** Drill-down selection — pushes the current selection onto history. */
+  drillIntoMeasure: (table: string, name: string) => Promise<void>;
+  /** Pop the most recent ancestor and re-select it. */
+  goBack: () => Promise<void>;
   selectTable: (name: string) => void;
   clearSelection: () => void;
   pinSelection: () => void;
@@ -82,6 +90,27 @@ function saveSet(key: string, s: Set<string>): void {
   }
 }
 
+/** Shared graph loader used by selectMeasure, drillIntoMeasure, goBack, and
+ *  setDepth. Caller is responsible for setting `selection` and any history
+ *  changes BEFORE calling. We only commit the graph if the user hasn't
+ *  navigated away while the request was in flight. */
+async function loadMeasureGraph(
+  set: (partial: Partial<State>) => void,
+  get: () => State,
+  table: string,
+  name: string,
+): Promise<void> {
+  try {
+    const g = await api.measureGraph(table, name, get().depth);
+    const sel = get().selection;
+    if (sel && sel.kind === "measure" && sel.name === name && sel.table === table) {
+      set({ measureGraph: g, measureGraphLoading: false });
+    }
+  } catch (e) {
+    set({ error: (e as Error).message, measureGraphLoading: false });
+  }
+}
+
 export const useStore = create<State>((set, get) => ({
   summary: null,
   measures: [],
@@ -101,6 +130,7 @@ export const useStore = create<State>((set, get) => ({
   collapsedFolders: loadSet(STORAGE_COLLAPSED),
 
   selection: null,
+  selectionHistory: [],
   pinned: [],
   measureGraph: null,
   measureGraphLoading: false,
@@ -126,10 +156,22 @@ export const useStore = create<State>((set, get) => ({
     localStorage.setItem("model-lenz-theme", next);
     set({ theme: next });
   },
-  setDepth: (d) => {
+  setDepth: async (d) => {
     set({ depth: d });
     const sel = get().selection;
-    if (sel?.kind === "measure" && sel.table) void get().selectMeasure(sel.table, sel.name);
+    if (sel?.kind !== "measure" || !sel.table) return;
+    // Re-fetch the graph at the new depth without disturbing the breadcrumb
+    // trail (which selectMeasure would clear).
+    set({ measureGraph: null, measureGraphLoading: true });
+    try {
+      const g = await api.measureGraph(sel.table, sel.name, d);
+      const cur = get().selection;
+      if (cur && cur.kind === "measure" && cur.name === sel.name && cur.table === sel.table) {
+        set({ measureGraph: g, measureGraphLoading: false });
+      }
+    } catch (e) {
+      set({ error: (e as Error).message, measureGraphLoading: false });
+    }
   },
   setSearch: (s) => set({ search: s }),
   toggleClassFilter: (c) => {
@@ -161,31 +203,55 @@ export const useStore = create<State>((set, get) => ({
   },
 
   selectMeasure: async (table, name) => {
+    // Fresh selection from sidebar/canvas — drop the breadcrumb trail.
     set({
       selection: { kind: "measure", name, table },
+      selectionHistory: [],
       measureGraph: null,
       measureGraphLoading: true,
     });
-    try {
-      const g = await api.measureGraph(table, name, get().depth);
-      // Only commit if the user hasn't navigated away.
-      const sel = get().selection;
-      if (sel && sel.kind === "measure" && sel.name === name && sel.table === table) {
-        set({ measureGraph: g, measureGraphLoading: false });
-      }
-    } catch (e) {
-      set({ error: (e as Error).message, measureGraphLoading: false });
+    await loadMeasureGraph(set, get, table, name);
+  },
+
+  drillIntoMeasure: async (table, name) => {
+    const cur = get().selection;
+    const history = get().selectionHistory;
+    // Push the current selection onto history (no-op if there is none, or if
+    // the user clicks the same measure they're already on).
+    const nextHistory =
+      cur && !(cur.kind === "measure" && cur.name === name && cur.table === table)
+        ? [...history, cur]
+        : history;
+    set({
+      selection: { kind: "measure", name, table },
+      selectionHistory: nextHistory,
+      measureGraph: null,
+      measureGraphLoading: true,
+    });
+    await loadMeasureGraph(set, get, table, name);
+  },
+
+  goBack: async () => {
+    const history = get().selectionHistory;
+    if (history.length === 0) return;
+    const prev = history[history.length - 1];
+    const nextHistory = history.slice(0, -1);
+    set({ selection: prev, selectionHistory: nextHistory, measureGraph: null });
+    if (prev.kind === "measure" && prev.table) {
+      set({ measureGraphLoading: true });
+      await loadMeasureGraph(set, get, prev.table, prev.name);
     }
   },
 
   selectTable: (name) =>
     set({
       selection: { kind: "table", name },
+      selectionHistory: [],
       measureGraph: null,
     }),
 
   clearSelection: () =>
-    set({ selection: null, measureGraph: null }),
+    set({ selection: null, selectionHistory: [], measureGraph: null }),
 
   pinSelection: () => {
     const sel = get().selection;

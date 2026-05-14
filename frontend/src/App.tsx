@@ -25,6 +25,13 @@ export function App() {
   }, [theme]);
 
   useEffect(() => {
+    const saved = localStorage.getItem("model-lenz-right-panel-width");
+    if (saved) {
+      document.documentElement.style.setProperty("--right-panel-width", `${saved}px`);
+    }
+  }, []);
+
+  useEffect(() => {
     fetch("/healthz")
       .then((r) => r.json())
       .then(setHealth)
