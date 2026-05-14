@@ -45,32 +45,51 @@ You only need Python 3.10+. Pick whichever installer you have — they all end w
 
 > **Do I need to clone the repo?** **No.** Installing from PyPI gives you the full tool, including the bundled `model-lenz demo`. Clone the repo only if you want to contribute code or read the source.
 
-### Windows (PowerShell) — copy-paste
+### Windows (PowerShell) — three steps
+
+**Step 1.** Install `uv` (Astral's installer — one-time, ~10 seconds):
 
 ```powershell
-# 1. Install uv (one-time, ~10 seconds)
 powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
+```
 
-# 2. Install Model Lenz as a global tool
+You only do this once per machine. If `uv --version` already prints something, skip it.
+
+**Step 2.** Install Model Lenz as a global tool:
+
+```powershell
 uv tool install model-lenz
+```
 
-# 3. Run it — point at the PBIP root folder (the one containing the .pbip file)
+This downloads the latest `model-lenz` wheel from PyPI and registers a `model-lenz` command on your PATH (in `~\.local\bin\`). No clone, no Python project setup.
+
+**Step 3.** Open a *new* PowerShell window (so the PATH update is picked up), then run:
+
+```powershell
 model-lenz serve "C:\projects\Sales"
 ```
 
-If you already have `uv`, only step 2 is needed. After `uv tool install`, **open a new PowerShell window** so the PATH update is picked up.
+Replace the path with your own PBIP root folder — the one containing your `.pbip` file. The browser opens automatically.
 
-### macOS / Linux — copy-paste
+### macOS / Linux — three steps
+
+**Step 1.** Install `uv`:
 
 ```bash
-# Option A — using uv (fastest)
 curl -LsSf https://astral.sh/uv/install.sh | sh
+```
+
+Skip if you already have `uv`. If you have `pipx` and prefer it, you can use `pipx install model-lenz` in step 2 instead.
+
+**Step 2.** Install Model Lenz as a global tool:
+
+```bash
 uv tool install model-lenz
+```
 
-# Option B — using pipx (if you already have it)
-pipx install model-lenz
+**Step 3.** In a new shell session, run it against your PBIP folder:
 
-# Run it — point at the PBIP root folder (the one containing the .pbip file)
+```bash
 model-lenz serve path/to/Sales
 ```
 
@@ -90,6 +109,24 @@ cd pbip_model_lenz
 uv pip install -e ".[dev]"
 cd frontend && npm install && npm run build && cd ..
 model-lenz serve examples/tiny_pbip
+```
+
+### Updating to a newer version
+
+When a new release lands on PyPI, your installed `model-lenz` will keep running the older version until you upgrade it. One command does it:
+
+```powershell
+uv tool upgrade model-lenz
+```
+
+(macOS/Linux: same command. With pipx: `pipx upgrade model-lenz`.)
+
+After upgrading, **fully close the existing model-lenz browser tab and stop any running server** (Ctrl+C in the terminal). Then run `model-lenz serve` again. Your browser should pick up the new bundle automatically; if it doesn't, hit **Ctrl+F5** (or **Cmd+Shift+R** on Mac) to force-refresh past the cached JavaScript.
+
+To confirm which version you have:
+
+```powershell
+model-lenz version
 ```
 
 ### What path do I point at?

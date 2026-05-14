@@ -34,48 +34,89 @@ examples/tiny_pbip/     Runnable PBIP shipped with the repo
 
 You need Python 3.10+ and Node 20+.
 
-```bash
-# Python side
-uv venv --python 3.12
-uv pip install -e ".[dev]"
+### One-time setup
 
-# Frontend side
-cd frontend
-npm install
+**Step 1.** Create the Python virtual environment with `uv`:
+
+```bash
+uv venv --python 3.12
 ```
+
+**Step 2.** Install Model Lenz in editable mode along with dev dependencies:
+
+```bash
+uv pip install -e ".[dev]"
+```
+
+**Step 3.** Install the frontend dependencies:
+
+```bash
+cd frontend && npm install && cd ..
+```
+
+That's all the one-time setup you need.
+
+### Daily dev loop — hot reload (recommended)
+
+Iterate on the UI with sub-second feedback. You'll need two terminals running side by side.
+
+**Terminal 1** — Python API server on port 8765 (no browser, no frontend bundle needed):
+
+```bash
+.venv/Scripts/model-lenz serve examples/tiny_pbip --port 8765 --no-browser
+```
+
+(Linux/macOS: drop the `Scripts/` and use `.venv/bin/model-lenz`.)
+
+Restart this terminal manually whenever you edit a `.py` file.
+
+**Terminal 2** — Vite dev server on port 5173 with hot module reload:
+
+```bash
+cd frontend && npm run dev
+```
+
+Open `http://localhost:5173/` in your browser. Vite proxies `/api/*` calls to the Python server on `:8765`. Edit any `.tsx` or `.css` file under `frontend/src/` and the browser updates in well under a second — no rebuild, no reinstall.
+
+**Windows shortcut** — `dev.ps1 dev` does both terminals for you in one command:
+
+```powershell
+.\dev.ps1 dev "examples\tiny_pbip"
+```
+
+It opens two new PowerShell windows (one per terminal) and a browser tab.
 
 ### Run the test suite
 
+Unit tests (fast, run in under 2 s):
+
 ```bash
-# Unit tests (fast, run in <2s)
 pytest tests/unit -v
+```
 
-# Include the end-to-end sample test (requires a real PBIP)
+Include the end-to-end sample test by pointing it at a real PBIP:
+
+```bash
 MODEL_LENZ_SAMPLE_PBIP=/path/to/your/PBIP pytest tests -v
-
-# Or use the included tiny example
-MODEL_LENZ_SAMPLE_PBIP=examples/tiny_pbip pytest tests/unit/test_api_routes.py -v
 ```
 
-### Run the app locally
-
-Two terminals — one for the API, one for the Vite dev server with HMR:
+Or use the bundled example so the e2e tests work without a real model:
 
 ```bash
-# Terminal 1: backend
-model-lenz serve examples/tiny_pbip --port 8765 --no-browser
-
-# Terminal 2: frontend
-cd frontend
-npm run dev   # opens http://localhost:5173 with API proxied to :8765
+MODEL_LENZ_SAMPLE_PBIP=examples/tiny_pbip pytest -v
 ```
 
-For a "production-feel" run that uses the bundled SPA:
+### Pre-release validation — test the actual end-user install path
 
-```bash
-cd frontend && npm run build   # emits to src/model_lenz/frontend_dist/
-model-lenz serve examples/tiny_pbip
+Before tagging a release (or before sharing the install URL with anyone), verify that a *fresh* `uv tool install` of the wheel works end to end. On Windows, one command does the whole rebuild + reinstall + bundle-hash check:
+
+```powershell
+.\dev.ps1 reinstall
 ```
+
+This kills any running `model-lenz` processes, rebuilds the React bundle, rebuilds the Python wheel, force-reinstalls the global tool from the new wheel, and confirms the source `frontend_dist` and the installed `frontend_dist` have matching JS hashes. After it finishes, `model-lenz serve` from any new terminal runs the latest code.
+
+Skip this for daily UI iteration — the HMR loop above is 200x faster.
 
 ## Style and quality
 
