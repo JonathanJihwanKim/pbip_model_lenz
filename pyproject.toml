@@ -50,6 +50,7 @@ packages = ["src/model_lenz"]
 
 [tool.hatch.build.targets.wheel.force-include]
 "src/model_lenz/frontend_dist" = "model_lenz/frontend_dist"
+"examples/tiny_pbip" = "model_lenz/_demo/tiny_pbip"
 
 [tool.ruff]
 line-length = 100

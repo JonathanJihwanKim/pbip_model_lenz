@@ -28,6 +28,13 @@ app = typer.Typer(
     no_args_is_help=True,
 )
 
+PBIP_PATH_HELP = (
+    "Path to a PBIP. Recommended: the PBIP ROOT folder (the one "
+    "containing the .pbip file and the *.SemanticModel\\ subfolder). "
+    "The *.SemanticModel\\ folder itself or its definition\\ subfolder "
+    "also work."
+)
+
 
 def _print_summary(pbip_path: Path) -> None:
     model = parse_pbip(pbip_path)
@@ -55,7 +62,7 @@ def _print_summary(pbip_path: Path) -> None:
 
 @app.command()
 def inspect(
-    pbip_path: Path = typer.Argument(..., exists=True, help="Path to a PBIP project, .SemanticModel folder, or its definition/."),
+    pbip_path: Path = typer.Argument(..., exists=True, help=PBIP_PATH_HELP),
     indent: int = typer.Option(2, "--indent", "-i", help="JSON indent (0 for compact)."),
     output: Optional[Path] = typer.Option(None, "--output", "-o", help="Write JSON to this file instead of stdout."),
 ) -> None:
@@ -75,7 +82,7 @@ def inspect(
 
 @app.command()
 def summary(
-    pbip_path: Path = typer.Argument(..., exists=True, help="Path to a PBIP project."),
+    pbip_path: Path = typer.Argument(..., exists=True, help=PBIP_PATH_HELP),
 ) -> None:
     """Print a one-screen human summary of the parsed model."""
     _print_summary(pbip_path)
@@ -89,7 +96,7 @@ def version_cmd() -> None:
 
 @app.command()
 def serve(
-    pbip_path: Path = typer.Argument(..., exists=True, help="Path to a PBIP project."),
+    pbip_path: Path = typer.Argument(..., exists=True, help=PBIP_PATH_HELP),
     host: str = typer.Option("127.0.0.1", "--host", "-H", help="Bind host."),
     port: int = typer.Option(0, "--port", "-p", help="Bind port (0 = auto)."),
     no_browser: bool = typer.Option(False, "--no-browser", help="Don't open a browser."),
@@ -98,6 +105,32 @@ def serve(
     from model_lenz.server import serve as _serve
 
     _serve(pbip_path, host=host, port=port, open_browser=not no_browser)
+
+
+@app.command()
+def demo(
+    host: str = typer.Option("127.0.0.1", "--host", "-H", help="Bind host."),
+    port: int = typer.Option(0, "--port", "-p", help="Bind port (0 = auto)."),
+    no_browser: bool = typer.Option(False, "--no-browser", help="Don't open a browser."),
+) -> None:
+    """Serve the bundled tiny demo PBIP - no path or clone needed."""
+    from model_lenz.server import serve as _serve
+
+    # Wheel install: bundled at <package>/_demo/tiny_pbip via force-include.
+    # Editable install (pip install -e .): fall back to repo's examples/tiny_pbip.
+    candidates = [
+        Path(__file__).parent / "_demo" / "tiny_pbip",
+        Path(__file__).parent.parent.parent / "examples" / "tiny_pbip",
+    ]
+    demo_path = next((p for p in candidates if p.exists()), None)
+    if demo_path is None:
+        raise typer.BadParameter(
+            "Bundled demo not found. Tried:\n  "
+            + "\n  ".join(str(p) for p in candidates)
+            + "\nIf you're running from a source checkout, ensure examples/tiny_pbip exists."
+        )
+    typer.echo(f"Serving bundled demo from {demo_path}")
+    _serve(demo_path, host=host, port=port, open_browser=not no_browser)
 
 
 def main() -> None:  # pragma: no cover

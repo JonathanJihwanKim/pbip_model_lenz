@@ -5,11 +5,19 @@
 > Status: alpha. Core analysis pipeline (parser → walker → API → SPA) is complete. Packaging and docs are stabilizing for a first public release.
 
 ```bash
-pipx install model-lenz       # one command, no Node required
-model-lenz serve path/to/MyReport
+uv tool install model-lenz       # or: pipx install model-lenz
+model-lenz demo                  # opens a built-in 5-table demo in your browser
 ```
 
-The browser opens to an interactive force-directed graph of your model.
+That's it. **Nothing to clone, nothing to download from GitHub.** The wheel includes the CLI, a pre-built React UI, and a tiny demo PBIP — all you need to see the tool in action.
+
+To analyse your own Power BI project:
+
+```bash
+model-lenz serve path/to/MyReport-pbip-folder    # the folder containing MyReport.pbip
+```
+
+(See [What path do I point at?](#what-path-do-i-point-at) below for the exact folder.)
 
 ---
 
@@ -33,25 +41,86 @@ There's a global **Semantic ↔ Source** toggle so the same graph reads naturall
 
 ## Install
 
-### Recommended (end users)
+You only need Python 3.10+. Pick whichever installer you have — they all end with the same `model-lenz` command on your PATH.
 
-```bash
-pipx install model-lenz
-model-lenz serve path/to/MyReport
+> **Do I need to clone the repo?** **No.** Installing from PyPI gives you the full tool, including the bundled `model-lenz demo`. Clone the repo only if you want to contribute code or read the source.
+
+### Windows (PowerShell) — copy-paste
+
+```powershell
+# 1. Install uv (one-time, ~10 seconds)
+powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
+
+# 2. Install Model Lenz as a global tool
+uv tool install model-lenz
+
+# 3. Run it — point at the PBIP root folder (the one containing the .pbip file)
+model-lenz serve "C:\projects\Sales"
 ```
 
-`pipx install` puts `model-lenz` on your PATH in its own isolated environment. No Python or Node setup required beyond Python 3.10+.
+If you already have `uv`, only step 2 is needed. After `uv tool install`, **open a new PowerShell window** so the PATH update is picked up.
 
-### From source
+### macOS / Linux — copy-paste
+
+```bash
+# Option A — using uv (fastest)
+curl -LsSf https://astral.sh/uv/install.sh | sh
+uv tool install model-lenz
+
+# Option B — using pipx (if you already have it)
+pipx install model-lenz
+
+# Run it — point at the PBIP root folder (the one containing the .pbip file)
+model-lenz serve path/to/Sales
+```
+
+### Already have Python and just want it in your environment?
+
+```bash
+pip install model-lenz
+```
+
+(Not recommended — `uv tool` / `pipx` keep `model-lenz` isolated from your project Pythons.)
+
+### From source (contributors)
 
 ```bash
 git clone https://github.com/JonathanJihwanKim/pbip_model_lenz
 cd pbip_model_lenz
 uv pip install -e ".[dev]"
-
-cd frontend && npm install && npm run build
-cd ..
+cd frontend && npm install && npm run build && cd ..
 model-lenz serve examples/tiny_pbip
+```
+
+### What path do I point at?
+
+PBIP saves your project as a folder tree:
+
+```
+Sales\                                      ← THIS is the PBIP root — point here
+  Sales.pbip                                ← the project file Power BI Desktop opens
+  Sales.SemanticModel\                      ← the model (TMDL)
+    definition\
+      tables\*.tmdl
+      relationships.tmdl
+      expressions.tmdl
+  Sales.Report\                             ← the report (PBIR, JSON)
+    definition\
+      pages\*\visuals\*\visual.json
+```
+
+`model-lenz serve` accepts any of these three paths and they all parse the same model:
+
+| Path you pass                                      | Works? | Notes                                     |
+|----------------------------------------------------|--------|--------------------------------------------|
+| `Sales`  *(the PBIP root, containing `Sales.pbip`)*| ✅ recommended | Future v0.2 PBIR scanning needs this folder so it can also find `Sales.Report\`. |
+| `Sales\Sales.SemanticModel`                         | ✅      | Skips report-side discovery.               |
+| `Sales\Sales.SemanticModel\definition`              | ✅      | Same as above.                             |
+
+Quoting: on Windows wrap the path in double quotes if it contains spaces:
+
+```powershell
+model-lenz serve "C:\My Reports\Q4 Sales"
 ```
 
 ---
@@ -66,27 +135,41 @@ Usage: model-lenz [OPTIONS] COMMAND [ARGS]...
   Open-source PBIP analyzer.
 
 Commands:
+  demo      Serve the bundled tiny demo PBIP — no path or clone needed.
   inspect   Parse a PBIP and print the parsed model as JSON.
-  summary   Print a one-screen human summary of the parsed model.
   serve     Start the local web server and open the model in a browser.
+  summary   Print a one-screen human summary of the parsed model.
   version   Print the Model Lenz version.
 ```
 
+- `model-lenz demo` — the fastest way to see what the tool does. No path, no clone — uses a bundled 5-table model.
+- `model-lenz serve <pbip>` — the main experience on your own model: local web app + interactive graph.
 - `model-lenz summary <pbip>` — counts, classification breakdown, lineage confidence — useful for CI.
 - `model-lenz inspect <pbip> -o model.json` — full parsed model as JSON. Plug it into other tools.
-- `model-lenz serve <pbip>` — the main experience: local web app + interactive graph.
 
 ---
 
-## Try it in 30 seconds
+## Try it in 30 seconds (no clone needed)
 
 ```bash
-pipx install model-lenz
-git clone https://github.com/JonathanJihwanKim/pbip_model_lenz
-model-lenz serve pbip_model_lenz/examples/tiny_pbip
+uv tool install model-lenz   # or: pipx install model-lenz
+model-lenz demo              # opens the bundled demo in your browser
 ```
 
-The included `examples/tiny_pbip` is a hand-authored 5-table model (Date, Customer, Product, Sales_fct, Measure) with seven measures — including a `USERELATIONSHIP` example, a transitive measure chain (`Margin% → Margin → [Total Sales]/[Total Cost]`), and a SQL-native-query lineage. Click *Margin %* in the left sidebar and watch the dashed edges light up across all three dimensions, even though the expression itself only mentions other measures.
+The bundled demo is a hand-authored 5-table model (Date, Customer, Product, Sales_fct, Measure) with seven measures — including a `USERELATIONSHIP` example, a transitive measure chain (`Margin% → Margin → [Total Sales]/[Total Cost]`), and a SQL-native-query lineage. Click *Margin %* in the left sidebar and watch the dashed edges light up across all three dimensions, even though the expression itself only mentions other measures.
+
+To run against your own model instead:
+
+```bash
+model-lenz serve "C:\projects\Sales"   # any PBIP root folder on your disk
+```
+
+### Troubleshooting
+
+- **"`pipx` is not recognized" on Windows.** Use `uv tool install` instead (see Install section above) — `uv` is a single-binary installer and doesn't need pip.
+- **`model-lenz` isn't found after install.** Open a *new* terminal window. The installer added a directory (`~/.local/bin` on Linux/macOS, `%USERPROFILE%\.local\bin` on Windows) to your PATH, but existing terminals don't see it until they restart.
+- **Browser doesn't open automatically.** It prints the URL — copy `http://127.0.0.1:<port>/` into your browser. Add `--no-browser` to suppress the auto-open.
+- **"Address already in use".** Pick a port: `model-lenz serve … --port 8765`.
 
 ---
 
