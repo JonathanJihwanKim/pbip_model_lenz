@@ -31,10 +31,6 @@ interface State {
   theme: Theme;
   depth: number;
   search: string;
-  /** When true and a measure is selected, related dim/fact tables sort to
-   *  the leftmost positions in their zone. Off by default so positions
-   *  stay stable across selections (preserves spatial memory). */
-  packMode: boolean;
   classFilter: Set<string>; // selected table classifications
   expandedFolders: Set<string>; // explicitly expanded sidebar folders
   collapsedFolders: Set<string>; // explicitly collapsed (overrides default)
@@ -54,7 +50,6 @@ interface State {
   toggleTheme: () => void;
   setDepth: (d: number) => Promise<void>;
   setSearch: (s: string) => void;
-  togglePackMode: () => void;
   toggleClassFilter: (c: string) => void;
   toggleFolder: (folder: string) => void;
   expandFolder: (folder: string) => void;
@@ -128,7 +123,6 @@ export const useStore = create<State>((set, get) => ({
   theme: (localStorage.getItem("model-lenz-theme") as Theme) || "dark",
   depth: 2,
   search: "",
-  packMode: localStorage.getItem("model-lenz-pack-mode") === "1",
   // Default: only the structural backbone is visible. Param tables, calc
   // groups, and "other" tables are revealed on demand (or by toggling chips).
   classFilter: new Set(BACKBONE_CLASSES),
@@ -180,11 +174,6 @@ export const useStore = create<State>((set, get) => ({
     }
   },
   setSearch: (s) => set({ search: s }),
-  togglePackMode: () => {
-    const next = !get().packMode;
-    localStorage.setItem("model-lenz-pack-mode", next ? "1" : "0");
-    set({ packMode: next });
-  },
   toggleClassFilter: (c) => {
     const cur = new Set(get().classFilter);
     if (cur.has(c)) cur.delete(c);

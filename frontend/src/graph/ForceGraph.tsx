@@ -68,43 +68,42 @@ export function ForceGraph() {
   const measureGraph = useStore((s) => s.measureGraph);
   const selectTable = useStore((s) => s.selectTable);
   const pinSelection = useStore((s) => s.pinSelection);
-  const packMode = useStore((s) => s.packMode);
 
   const svgRef = useRef<SVGSVGElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const tooltipRef = useRef<HTMLDivElement>(null);
   const zoomRef = useRef<ZoomBehavior<SVGSVGElement, unknown> | null>(null);
 
-  // Visibility set: classFilter + selection-driven reveal of disconnected
-  // tables that the selected measure happens to touch.
+  // Visibility — focused subgraph on selection.
+  //
+  // No selection: classFilter view (the model overview).
+  // Measure selected: only direct + indirect tables of that measure.
+  // Table selected: only that table + its 1-hop relationship neighbors.
+  //
+  // During measure-graph load `measureGraph` is briefly null; the
+  // `if measureGraph` guard means we fall through to classFilter for that
+  // tick, which avoids an empty canvas flash.
   const visibleNodeIds = useMemo(() => {
+    if (selection?.kind === "measure" && measureGraph) {
+      const ids = new Set<string>();
+      for (const name of measureGraph.direct_tables) ids.add(`t:${name}`);
+      for (const it of measureGraph.indirect_tables) ids.add(`t:${it.table}`);
+      return ids;
+    }
+    if (selection?.kind === "table") {
+      const ids = new Set<string>([`t:${selection.name}`]);
+      for (const r of relationships) {
+        if (r.from_table === selection.name) ids.add(`t:${r.to_table}`);
+        if (r.to_table === selection.name) ids.add(`t:${r.from_table}`);
+      }
+      return ids;
+    }
     const visible = new Set<string>();
     for (const t of tables) {
       if (classFilter.has(t.classification)) visible.add(`t:${t.name}`);
     }
-    if (selection?.kind === "measure" && measureGraph) {
-      for (const name of measureGraph.direct_tables) visible.add(`t:${name}`);
-      for (const it of measureGraph.indirect_tables) visible.add(`t:${it.table}`);
-    }
-    if (selection?.kind === "table") {
-      visible.add(`t:${selection.name}`);
-    }
     return visible;
-  }, [tables, classFilter, selection, measureGraph]);
-
-  // Set of node IDs the current selection "relates to" (direct + indirect
-  // tables of a measure, or just the table itself). Drives both the Pack
-  // toggle's reordering and the auto-fit viewport calculation.
-  const relatedNodeIds = useMemo(() => {
-    const ids = new Set<string>();
-    if (selection?.kind === "measure" && measureGraph) {
-      for (const name of measureGraph.direct_tables) ids.add(`t:${name}`);
-      for (const it of measureGraph.indirect_tables) ids.add(`t:${it.table}`);
-    } else if (selection?.kind === "table") {
-      ids.add(`t:${selection.name}`);
-    }
-    return ids;
-  }, [selection, measureGraph]);
+  }, [tables, classFilter, selection, measureGraph, relationships]);
 
   const layout = useMemo(() => {
     const tableLookup = new Map(tables.map((t) => [t.name, t]));
@@ -124,9 +123,7 @@ export function ForceGraph() {
         rel: r,
       }));
 
-    // Pack mode only kicks in when there's something to pack against.
-    const focused = packMode && relatedNodeIds.size > 0 ? relatedNodeIds : null;
-    const positions = computeBusLayout(nodes, edges, visibleNodeIds, DEFAULT_LAYOUT, focused);
+    const positions = computeBusLayout(nodes, edges, visibleNodeIds);
 
     const nodeViews: NodeView[] = tables.map((t) => {
       const id = `t:${t.name}`;
@@ -142,6 +139,8 @@ export function ForceGraph() {
     });
     const nodeById = new Map(nodeViews.map((n) => [n.id, n]));
 
+    // Edges with at least one hidden endpoint don't render at all (instead of
+    // rendering at opacity 0). Cuts DOM nodes for the unrelated subgraph.
     const edgeViews: EdgeView[] = edges
       .map((e) => {
         const s = nodeById.get(e.source)!;
@@ -156,10 +155,11 @@ export function ForceGraph() {
           anomalous: isAnomalousEdge(s.position, t.position),
           visible: s.visible && t.visible,
         };
-      });
+      })
+      .filter((e) => e.visible);
 
     return { nodes: nodeViews, edges: edgeViews, positions };
-  }, [tables, relationships, visibleNodeIds, packMode, relatedNodeIds]);
+  }, [tables, relationships, visibleNodeIds]);
 
   // Spotlight: when a measure is selected and its graph is loaded, build
   // (a) a synthetic "measure" node in the top-left corner, and
@@ -228,11 +228,9 @@ export function ForceGraph() {
     zoomRef.current = z;
   }, []);
 
-  // Auto-fit viewport when a measure is selected (or selection changes).
-  // Computes the bounding box of the synthetic measure node + every related
-  // table card, then transitions the zoom transform so that box fills the
-  // canvas with padding. User pan/zoom after fit is preserved until the next
-  // selection change.
+  // Auto-fit viewport when selection changes. With hide-unrelated, every
+  // visible node IS a related node, so we just frame the bbox of layout's
+  // visible set (plus the synthetic measure card for measure-mode).
   useEffect(() => {
     const svg = svgRef.current;
     const z = zoomRef.current;
@@ -240,10 +238,7 @@ export function ForceGraph() {
     if (!selection) return;
     if (selection.kind === "measure" && !measureGraph) return; // wait for load
 
-    const positioned = layout.nodes.filter(
-      (n) => n.visible && (relatedNodeIds.has(n.id) || (selection.kind === "table" && n.label === selection.name)),
-    );
-    // Include the synthetic measure node so the corner anchor is in frame.
+    const positioned = layout.nodes.filter((n) => n.visible);
     const points: Array<{ x: number; y: number }> = positioned.map((n) => ({
       x: n.position.x,
       y: n.position.y,
@@ -275,7 +270,7 @@ export function ForceGraph() {
       .transition()
       .duration(550)
       .call(z.transform, zoomIdentity.translate(tx, ty).scale(clampedScale));
-  }, [selection, measureGraph, relatedNodeIds, layout]);
+  }, [selection, measureGraph, layout]);
 
   // Reset cursor styling on mount; nothing else needs imperative DOM.
   useEffect(() => {
@@ -306,19 +301,20 @@ export function ForceGraph() {
     if (el) el.style.opacity = "0";
   }
 
-  // Compute per-node opacity once for the current render.
+  // With hide-unrelated, every node in `layout.nodes.filter(visible)` is
+  // already part of the focal subgraph — no need for a "dim unrelated"
+  // case here. The `n.visible` check guards against off-canvas (parked)
+  // nodes the layout still keeps in the array.
   function nodeOpacity(n: NodeView): number {
-    if (!n.visible) return 0;
-    if (!spotlight) return 1;
-    if (spotlight.directIds.has(n.id) || spotlight.indirectIds.has(n.id)) return 1;
-    return 0.18;
+    return n.visible ? 1 : 0;
   }
 
   function edgeOpacity(e: EdgeView): number {
-    if (!e.visible) return 0;
     if (!spotlight) return e.anomalous ? 0.7 : 0.4;
+    // Highlighted = on the measure's filter path. Other visible edges
+    // still render but more faintly so the path stands out.
     if (spotlight.highlightedRelIds.has(e.id)) return 0.95;
-    return 0.05;
+    return 0.4;
   }
 
   function edgeStroke(e: EdgeView): string {

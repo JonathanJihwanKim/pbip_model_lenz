@@ -11,8 +11,6 @@ export function Header({ pbipPath }: { pbipPath: string }) {
   const theme = useStore((s) => s.theme);
   const toggleTheme = useStore((s) => s.toggleTheme);
   const summary = useStore((s) => s.summary);
-  const packMode = useStore((s) => s.packMode);
-  const togglePackMode = useStore((s) => s.togglePackMode);
 
   return (
     <header className="header">
@@ -46,18 +44,6 @@ export function Header({ pbipPath }: { pbipPath: string }) {
           <DepthSelect depth={depth} onChange={setDepth} />
           <DepthHelp />
         </ControlGroup>
-        <button
-          className={`pack-toggle${packMode ? " active" : ""}`}
-          onClick={togglePackMode}
-          title={
-            packMode
-              ? "Pack ON — related dim/fact tables move to the leftmost positions when a measure is selected"
-              : "Pack OFF — table positions stay fixed across selections (Bus Layout default)"
-          }
-          aria-pressed={packMode}
-        >
-          PACK
-        </button>
         <button
           className="icon-btn"
           aria-label="Toggle theme"

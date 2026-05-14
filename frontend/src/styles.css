@@ -220,26 +220,6 @@ pre {
   color: var(--text-0);
 }
 
-.pack-toggle {
-  padding: 5px 10px;
-  border: 1px solid var(--border);
-  background: var(--bg-1);
-  color: var(--text-2);
-  border-radius: var(--radius-sm);
-  font-size: 11px;
-  letter-spacing: 0.06em;
-  font-weight: 500;
-  cursor: pointer;
-}
-.pack-toggle:hover {
-  border-color: var(--accent);
-  color: var(--text-0);
-}
-.pack-toggle.active {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: white;
-}
 
 .control-group {
   display: inline-flex;
