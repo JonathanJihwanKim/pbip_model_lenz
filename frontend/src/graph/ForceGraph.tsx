@@ -1,64 +1,58 @@
+/**
+ * Bus Layout + Spotlight — the canvas component.
+ *
+ * Layout is deterministic (no force simulation). Dim/time tables go in the
+ * top row, fact tables in the left column, disconnected tables in the right
+ * column. Relationship edges are drawn as L-shaped paths with right-angle
+ * bends, with cardinality glyphs (1 near dim, * near fact) and a filter
+ * arrow always pointing toward the fact.
+ *
+ * Spotlight: when a measure is selected, a synthetic "measure" node appears
+ * in the top-left corner (Tsui's "measures table" position) with solid edges
+ * to every direct table reference. Tables NOT on the measure's dependency
+ * path drop to ~15% opacity. Edges along the path are bolded; others fade.
+ *
+ * Pan/zoom via d3-zoom. Click a node to select it. Right-click to pin.
+ */
+
 import { useEffect, useMemo, useRef } from "react";
-import {
-  forceCenter,
-  forceCollide,
-  forceLink,
-  forceManyBody,
-  forceSimulation,
-  forceY,
-  type Simulation,
-  type SimulationLinkDatum,
-  type SimulationNodeDatum,
-} from "d3-force";
-import { drag as d3drag } from "d3-drag";
 import { select } from "d3-selection";
 import { zoom as d3zoom, type ZoomBehavior } from "d3-zoom";
 
 import { useStore } from "../store";
-import type { Classification, RelationshipItem } from "../api/types";
-import { shapePath, styleFor } from "./nodeStyles";
+import type { Cardinality, RelationshipItem } from "../api/types";
 import {
-  cardinalityGlyph,
-  styleForDirect,
-  styleForRelationship,
-  type EdgeStyle,
-} from "./edgeStyles";
+  cardinalityGlyphPosition,
+  computeBusLayout,
+  DEFAULT_LAYOUT,
+  isAnomalousEdge,
+  isDimZone,
+  isFactZone,
+  lShapedEdgePath,
+  type NodePosition,
+  type PositionableNode,
+} from "./busLayout";
 
-interface NodeDatum extends SimulationNodeDatum {
-  id: string;
-  label: string;
+const CARD_W = DEFAULT_LAYOUT.cardWidth;
+const CARD_H = DEFAULT_LAYOUT.cardHeight;
+
+interface NodeView extends PositionableNode {
   sourceLabel: string | null;
-  kind: "table" | "measure";
-  classification: Classification | "measure";
+  position: NodePosition;
+  visible: boolean;
 }
 
-interface LinkDatum extends SimulationLinkDatum<NodeDatum> {
+interface EdgeView {
   id: string;
-  source: string | NodeDatum;
-  target: string | NodeDatum;
-  kind: "relationship" | "direct";
-  rel?: RelationshipItem;
+  source: NodeView;
+  target: NodeView;
+  rel: RelationshipItem;
+  path: string;
+  anomalous: boolean;
+  visible: boolean;
 }
 
-/** Y-axis target per classification: dims/time on top, facts on the bottom. */
-function yTargetFor(classification: NodeDatum["classification"]): number {
-  switch (classification) {
-    case "dim":
-    case "time":
-      return -180;
-    case "fact":
-      return 180;
-    case "calculation_group":
-      return 240;
-    case "parameter":
-    case "other":
-      return 0;
-    case "measure":
-      return -260;
-    default:
-      return 0;
-  }
-}
+const SYNTHETIC_MEASURE_ID = "__synthetic_measure__";
 
 export function ForceGraph() {
   const tables = useStore((s) => s.tables);
@@ -72,41 +66,10 @@ export function ForceGraph() {
 
   const svgRef = useRef<SVGSVGElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
-  const sizeRef = useRef({ w: 800, h: 600 });
-  const simRef = useRef<Simulation<NodeDatum, LinkDatum> | null>(null);
   const tooltipRef = useRef<HTMLDivElement>(null);
 
-  // Build the FULL graph once — every table, every relationship.
-  // Visibility (classFilter + selection-driven reveal) is a render-time
-  // concern below, so toggling chips never resets the layout.
-  const baseData = useMemo(() => {
-    const tableLookup = new Map(tables.map((t) => [t.name, t]));
-
-    const nodes: NodeDatum[] = tables.map((t) => ({
-      id: `t:${t.name}`,
-      label: t.name,
-      sourceLabel: t.source_table,
-      kind: "table",
-      classification: t.classification,
-    }));
-
-    const links: LinkDatum[] = relationships
-      .filter((r) => tableLookup.has(r.from_table) && tableLookup.has(r.to_table))
-      .map((r) => ({
-        id: `r:${r.id}`,
-        source: `t:${r.from_table}`,
-        target: `t:${r.to_table}`,
-        kind: "relationship",
-        rel: r,
-      }));
-
-    return { nodes, links };
-  }, [tables, relationships]);
-
-  // Visibility set: filter chips + (when a measure is selected) reveal any
-  // direct/indirect tables of the selected measure even if their classification
-  // is normally hidden. This lets a fact-only graph still surface a parameter
-  // table when the selected measure references it.
+  // Visibility set: classFilter + selection-driven reveal of disconnected
+  // tables that the selected measure happens to touch.
   const visibleNodeIds = useMemo(() => {
     const visible = new Set<string>();
     for (const t of tables) {
@@ -122,228 +85,437 @@ export function ForceGraph() {
     return visible;
   }, [tables, classFilter, selection, measureGraph]);
 
-  // ResizeObserver for the container.
+  const layout = useMemo(() => {
+    const tableLookup = new Map(tables.map((t) => [t.name, t]));
+
+    const nodes: PositionableNode[] = tables.map((t) => ({
+      id: `t:${t.name}`,
+      label: t.name,
+      classification: t.classification,
+    }));
+
+    const edges = relationships
+      .filter((r) => tableLookup.has(r.from_table) && tableLookup.has(r.to_table))
+      .map((r) => ({
+        id: `r:${r.id}`,
+        source: `t:${r.from_table}`,
+        target: `t:${r.to_table}`,
+        rel: r,
+      }));
+
+    const positions = computeBusLayout(nodes, edges, visibleNodeIds);
+
+    const nodeViews: NodeView[] = tables.map((t) => {
+      const id = `t:${t.name}`;
+      const pos = positions.get(id)!;
+      return {
+        id,
+        label: t.name,
+        classification: t.classification,
+        sourceLabel: t.source_table,
+        position: pos,
+        visible: pos.zone !== "hidden",
+      };
+    });
+    const nodeById = new Map(nodeViews.map((n) => [n.id, n]));
+
+    const edgeViews: EdgeView[] = edges
+      .map((e) => {
+        const s = nodeById.get(e.source)!;
+        const t = nodeById.get(e.target)!;
+        const path = lShapedEdgePath(s.position, t.position, CARD_W, CARD_H);
+        return {
+          id: e.id,
+          source: s,
+          target: t,
+          rel: e.rel,
+          path,
+          anomalous: isAnomalousEdge(s.position, t.position),
+          visible: s.visible && t.visible,
+        };
+      });
+
+    return { nodes: nodeViews, edges: edgeViews, positions };
+  }, [tables, relationships, visibleNodeIds]);
+
+  // Spotlight: when a measure is selected and its graph is loaded, build
+  // (a) a synthetic "measure" node in the top-left corner, and
+  // (b) solid direct-ref edges from it to each direct-ref table.
+  const spotlight = useMemo(() => {
+    if (selection?.kind !== "measure" || !measureGraph) return null;
+    const directIds = new Set(measureGraph.direct_tables.map((n) => `t:${n}`));
+    const indirectIds = new Set(measureGraph.indirect_tables.map((it) => `t:${it.table}`));
+    const highlightedRelIds = new Set<string>();
+    for (const it of measureGraph.indirect_tables) {
+      for (const path of it.paths) {
+        for (const hop of path.hops) {
+          highlightedRelIds.add(`r:${hop.relationship_id}`);
+        }
+      }
+    }
+    // Place the synthetic measure node in the top-left corner — Tsui's
+    // "measures" table position. We use the layout's origin minus a small
+    // offset so it sits in the corner.
+    const measureNode = {
+      id: SYNTHETIC_MEASURE_ID,
+      label: measureGraph.measure.name,
+      x: DEFAULT_LAYOUT.originX,
+      y: DEFAULT_LAYOUT.originY,
+    };
+    // Direct-ref edges go from the measure node to each direct table card's
+    // top-left corner (rough approximation — use a curve that doesn't fight
+    // the bus L-shapes).
+    const directEdges = measureGraph.direct_tables
+      .map((tname) => {
+        const id = `t:${tname}`;
+        const t = layout.nodes.find((n) => n.id === id);
+        if (!t) return null;
+        const fromX = measureNode.x + CARD_W / 2;
+        const fromY = measureNode.y + CARD_H / 2 + 4;
+        const toX = t.position.x - CARD_W / 2;
+        const toY = t.position.y;
+        // Smooth Bezier curve so direct refs don't compete with the L-shapes.
+        const midX = (fromX + toX) / 2;
+        return {
+          id: `direct:${tname}`,
+          path: `M ${fromX},${fromY} C ${midX},${fromY} ${midX},${toY} ${toX},${toY}`,
+        };
+      })
+      .filter((e): e is { id: string; path: string } => e !== null);
+
+    return {
+      measureNode,
+      directIds,
+      indirectIds,
+      highlightedRelIds,
+      directEdges,
+    };
+  }, [selection, measureGraph, layout]);
+
+  // Pan/zoom setup (run once).
+  useEffect(() => {
+    const svg = svgRef.current;
+    if (!svg) return;
+    const z: ZoomBehavior<SVGSVGElement, unknown> = d3zoom<SVGSVGElement, unknown>()
+      .scaleExtent([0.2, 4])
+      .on("zoom", (e) => {
+        select(svg).select<SVGGElement>("g.viewport").attr("transform", e.transform.toString());
+      });
+    select(svg).call(z);
+  }, []);
+
+  // Reset cursor styling on mount; nothing else needs imperative DOM.
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
-    const ro = new ResizeObserver(() => {
-      const r = el.getBoundingClientRect();
-      sizeRef.current = { w: r.width, h: r.height };
-      simRef.current?.force("center", forceCenter(r.width / 2, r.height / 2));
-      simRef.current?.alpha(0.3).restart();
-    });
+    const ro = new ResizeObserver(() => {});
     ro.observe(el);
     return () => ro.disconnect();
   }, []);
 
-  // Build / rebuild the simulation when the *base* graph (tables+rels) changes.
-  // Filter chip toggles do NOT rebuild — see visibleNodeIds effect below.
-  useEffect(() => {
-    const svg = svgRef.current;
-    if (!svg) return;
+  function showTooltip(e: React.MouseEvent, n: NodeView) {
+    const el = tooltipRef.current;
+    if (!el) return;
+    const semantic = n.label;
+    const source = n.sourceLabel;
+    el.innerHTML = `
+      <div class="tt-name">${escape(semantic)}</div>
+      ${source ? `<div class="tt-source">${escape(source)}</div>` : ""}
+      <div class="tt-class">${n.classification}</div>
+    `;
+    el.style.opacity = "1";
+    el.style.left = `${e.clientX + 14}px`;
+    el.style.top = `${e.clientY + 14}px`;
+  }
 
-    const { w, h } = sizeRef.current;
+  function hideTooltip() {
+    const el = tooltipRef.current;
+    if (el) el.style.opacity = "0";
+  }
 
-    select(svg).selectAll("*").remove();
+  // Compute per-node opacity once for the current render.
+  function nodeOpacity(n: NodeView): number {
+    if (!n.visible) return 0;
+    if (!spotlight) return 1;
+    if (spotlight.directIds.has(n.id) || spotlight.indirectIds.has(n.id)) return 1;
+    return 0.18;
+  }
 
-    const defs = select(svg).append("defs");
-    arrowMarker(defs, "arrow", "var(--edge-rel)");
-    arrowMarker(defs, "arrow-amber", "#F59E0B");
-    arrowMarker(defs, "arrow-bidi-start", "var(--edge-rel)");
-    arrowMarker(defs, "arrow-direct", "var(--edge-direct)");
+  function edgeOpacity(e: EdgeView): number {
+    if (!e.visible) return 0;
+    if (!spotlight) return e.anomalous ? 0.7 : 0.4;
+    if (spotlight.highlightedRelIds.has(e.id)) return 0.95;
+    return 0.05;
+  }
 
-    const root = select(svg).append("g").attr("class", "viewport");
-    const linkGroup = root.append("g").attr("class", "links");
-    const nodeGroup = root.append("g").attr("class", "nodes");
+  function edgeStroke(e: EdgeView): string {
+    if (e.anomalous) return "var(--warn)";
+    if (spotlight?.highlightedRelIds.has(e.id)) return "var(--text-1)";
+    return "var(--edge-rel)";
+  }
 
-    const z: ZoomBehavior<SVGSVGElement, unknown> = d3zoom<SVGSVGElement, unknown>()
-      .scaleExtent([0.25, 4])
-      .on("zoom", (e) => root.attr("transform", e.transform.toString()));
-    select(svg).call(z);
+  function edgeStrokeWidth(e: EdgeView): number {
+    if (spotlight?.highlightedRelIds.has(e.id)) return 1.8;
+    return 1.0;
+  }
 
-    const nodes: NodeDatum[] = baseData.nodes.map((n) => {
-      const seeded: NodeDatum = { ...n };
-      // Seed Y near the target so the layered pattern emerges immediately.
-      seeded.y = yTargetFor(n.classification) + (Math.random() - 0.5) * 60;
-      return seeded;
-    });
-    const links = baseData.links.map((l) => ({ ...l }));
-
-    const sim = forceSimulation<NodeDatum>(nodes)
-      .force(
-        "link",
-        forceLink<NodeDatum, LinkDatum>(links)
-          .id((d) => d.id)
-          .distance((d) => (d.kind === "direct" ? 90 : 120))
-          .strength(0.4),
-      )
-      .force("charge", forceManyBody<NodeDatum>().strength(-260))
-      .force("center", forceCenter(w / 2, h / 2))
-      .force(
-        "collide",
-        forceCollide<NodeDatum>((d) => styleFor(d.classification).size + 14),
-      )
-      // Layered Y force: dims/time pulled to top, facts to bottom.
-      .force("y-layer", forceY<NodeDatum>((d) => h / 2 + yTargetFor(d.classification)).strength(0.18))
-      .alphaDecay(0.04);
-
-    simRef.current = sim;
-
-    const linkSel = linkGroup
-      .selectAll<SVGGElement, LinkDatum>("g.link")
-      .data(links, (d) => d.id)
-      .join((enter) => {
-        const g = enter.append("g").attr("class", "link");
-        g.append("line").attr("class", "edge");
-        g.append("text")
-          .attr("class", "edge-label")
-          .attr("text-anchor", "middle")
-          .attr("dy", -3);
-        return g;
-      });
-
-    const nodeSel = nodeGroup
-      .selectAll<SVGGElement, NodeDatum>("g.node")
-      .data(nodes, (d) => d.id)
-      .join((enter) => {
-        const g = enter.append("g").attr("class", "node").style("cursor", "pointer");
-        g.each(function (d) {
-          const style = styleFor(d.classification);
-          if (style.shape === "circle") {
-            select(this)
-              .append("circle")
-              .attr("r", style.size)
-              .attr("fill", style.fill)
-              .attr("stroke", style.stroke)
-              .attr("stroke-width", 1.5);
-          } else {
-            select(this)
-              .append("path")
-              .attr("d", shapePath(style))
-              .attr("fill", style.fill)
-              .attr("stroke", style.stroke)
-              .attr("stroke-width", 1.5);
-          }
-        });
-        g.append("text")
-          .attr("class", "node-label")
-          .attr("text-anchor", "middle")
-          .attr("dy", (d) => styleFor(d.classification).size + 14)
-          .attr("font-size", 11)
-          .attr("fill", "var(--text-1)")
-          .attr("pointer-events", "none");
-        return g;
-      });
-
-    nodeSel
-      .on("click", (e: MouseEvent, d) => {
-        e.stopPropagation();
-        if (d.kind === "table") selectTable(d.label);
-      })
-      .on("contextmenu", (e: MouseEvent) => {
-        e.preventDefault();
-        pinSelection();
-      })
-      .on("mouseenter", (e: MouseEvent, d) => {
-        showTooltip(tooltipRef.current, e, d);
-      })
-      .on("mousemove", (e: MouseEvent, d) => {
-        showTooltip(tooltipRef.current, e, d);
-      })
-      .on("mouseleave", () => hideTooltip(tooltipRef.current))
-      .call(
-        d3drag<SVGGElement, NodeDatum>()
-          .on("start", (event, d) => {
-            if (!event.active) sim.alphaTarget(0.2).restart();
-            d.fx = d.x;
-            d.fy = d.y;
-          })
-          .on("drag", (event, d) => {
-            d.fx = event.x;
-            d.fy = event.y;
-          })
-          .on("end", (event, d) => {
-            if (!event.active) sim.alphaTarget(0);
-            d.fx = null;
-            d.fy = null;
-          }),
-      );
-
-    sim.on("tick", () => {
-      linkSel
-        .select("line")
-        .attr("x1", (d) => (d.source as NodeDatum).x ?? 0)
-        .attr("y1", (d) => (d.source as NodeDatum).y ?? 0)
-        .attr("x2", (d) => (d.target as NodeDatum).x ?? 0)
-        .attr("y2", (d) => (d.target as NodeDatum).y ?? 0);
-      linkSel
-        .select("text")
-        .attr("x", (d) => (((d.source as NodeDatum).x ?? 0) + ((d.target as NodeDatum).x ?? 0)) / 2)
-        .attr("y", (d) => (((d.source as NodeDatum).y ?? 0) + ((d.target as NodeDatum).y ?? 0)) / 2);
-      nodeSel.attr("transform", (d) => `translate(${d.x ?? 0}, ${d.y ?? 0})`);
-    });
-
-    select(svg).on("click", () => {
-      hideTooltip(tooltipRef.current);
-    });
-
-    return () => {
-      sim.stop();
-      simRef.current = null;
-    };
-  }, [baseData, selectTable, pinSelection]);
-
-  // Apply visibility — render-only toggle, never touches the simulation.
-  useEffect(() => {
-    const svg = svgRef.current;
-    if (!svg) return;
-    const sel = select(svg);
-    sel
-      .selectAll<SVGGElement, NodeDatum>("g.node")
-      .style("display", (n) => (visibleNodeIds.has(n.id) ? null : "none"));
-    sel
-      .selectAll<SVGGElement, LinkDatum>("g.link")
-      .style("display", (d) => {
-        const s = (d.source as NodeDatum).id;
-        const t = (d.target as NodeDatum).id;
-        return visibleNodeIds.has(s) && visibleNodeIds.has(t) ? null : "none";
-      });
-  }, [visibleNodeIds]);
-
-  // Update node labels when view mode changes.
-  useEffect(() => {
-    const svg = svgRef.current;
-    if (!svg) return;
-    select(svg)
-      .selectAll<SVGTextElement, NodeDatum>("text.node-label")
-      .text((d) => labelFor(d, view));
-  }, [view, baseData]);
-
-  // Highlight edges & nodes when a measure (or its graph) changes.
-  useEffect(() => {
-    const svg = svgRef.current;
-    if (!svg) return;
-    applyHighlight(svg, selection, measureGraph);
-  }, [selection, measureGraph, baseData]);
+  function edgeDash(e: EdgeView): string | undefined {
+    if (e.rel.is_active) return undefined;
+    return "3 4";
+  }
 
   return (
     <div ref={containerRef} className="graph-container">
       <svg
         ref={svgRef}
-        className="graph-svg"
+        className="graph-svg bus-graph"
         width="100%"
         height="100%"
         role="img"
-        aria-label="Model relationship graph"
-      />
-      <div className="graph-axis-label graph-axis-label-top" aria-hidden>
-        Dimensions / Time
-      </div>
-      <div className="graph-axis-label graph-axis-label-bottom" aria-hidden>
-        Facts
-      </div>
+        aria-label="Model relationship graph (bus layout)"
+      >
+        <defs>
+          <marker
+            id="arrow-fact"
+            viewBox="0 -5 10 10"
+            refX={9}
+            refY={0}
+            markerWidth={6}
+            markerHeight={6}
+            orient="auto"
+          >
+            <path d="M 0,-5 L 10,0 L 0,5 Z" fill="var(--edge-rel)" />
+          </marker>
+          <marker
+            id="arrow-fact-hot"
+            viewBox="0 -5 10 10"
+            refX={9}
+            refY={0}
+            markerWidth={6}
+            markerHeight={6}
+            orient="auto"
+          >
+            <path d="M 0,-5 L 10,0 L 0,5 Z" fill="var(--text-1)" />
+          </marker>
+          <marker
+            id="arrow-anomaly"
+            viewBox="0 -5 10 10"
+            refX={9}
+            refY={0}
+            markerWidth={6}
+            markerHeight={6}
+            orient="auto"
+          >
+            <path d="M 0,-5 L 10,0 L 0,5 Z" fill="var(--warn)" />
+          </marker>
+          <marker
+            id="arrow-direct"
+            viewBox="0 -5 10 10"
+            refX={9}
+            refY={0}
+            markerWidth={7}
+            markerHeight={7}
+            orient="auto"
+          >
+            <path d="M 0,-5 L 10,0 L 0,5 Z" fill="var(--accent)" />
+          </marker>
+        </defs>
+
+        <g className="viewport">
+          {/* Edges first so cards render on top */}
+          <g className="edges">
+            {layout.edges.map((e) => (
+              <g
+                key={e.id}
+                className="edge"
+                style={{ opacity: edgeOpacity(e) }}
+              >
+                <path
+                  d={e.path}
+                  fill="none"
+                  stroke={edgeStroke(e)}
+                  strokeWidth={edgeStrokeWidth(e)}
+                  strokeDasharray={edgeDash(e)}
+                  markerEnd={
+                    e.anomalous
+                      ? "url(#arrow-anomaly)"
+                      : spotlight?.highlightedRelIds.has(e.id)
+                        ? "url(#arrow-fact-hot)"
+                        : "url(#arrow-fact)"
+                  }
+                />
+                <CardinalityGlyph edge={e} kind="dim" />
+                <CardinalityGlyph edge={e} kind="fact" />
+              </g>
+            ))}
+          </g>
+
+          {/* Spotlight: direct-ref edges from synthetic measure node */}
+          {spotlight && (
+            <g className="direct-edges">
+              {spotlight.directEdges.map((e) => (
+                <path
+                  key={e.id}
+                  d={e.path}
+                  fill="none"
+                  stroke="var(--accent)"
+                  strokeWidth={2}
+                  markerEnd="url(#arrow-direct)"
+                  opacity={0.85}
+                />
+              ))}
+            </g>
+          )}
+
+          {/* Table cards */}
+          <g className="nodes">
+            {layout.nodes.map((n) => (
+              <g
+                key={n.id}
+                className={`node node-${n.classification}`}
+                transform={`translate(${n.position.x}, ${n.position.y})`}
+                style={{ opacity: nodeOpacity(n), cursor: "pointer" }}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  selectTable(n.label);
+                }}
+                onContextMenu={(e) => {
+                  e.preventDefault();
+                  pinSelection();
+                }}
+                onMouseEnter={(e) => showTooltip(e, n)}
+                onMouseMove={(e) => showTooltip(e, n)}
+                onMouseLeave={hideTooltip}
+              >
+                <rect
+                  x={-CARD_W / 2}
+                  y={-CARD_H / 2}
+                  width={CARD_W}
+                  height={CARD_H}
+                  rx={4}
+                  className="card-rect"
+                />
+                <text
+                  className="card-label"
+                  x={0}
+                  y={4}
+                  textAnchor="middle"
+                  pointerEvents="none"
+                >
+                  {labelFor(n, view)}
+                </text>
+              </g>
+            ))}
+          </g>
+
+          {/* Spotlight measure node */}
+          {spotlight && (
+            <g
+              className="node node-measure"
+              transform={`translate(${spotlight.measureNode.x}, ${spotlight.measureNode.y})`}
+            >
+              <rect
+                x={-CARD_W / 2}
+                y={-CARD_H / 2}
+                width={CARD_W}
+                height={CARD_H}
+                rx={4}
+                className="card-rect measure-rect"
+              />
+              <text
+                className="card-label measure-label"
+                x={0}
+                y={4}
+                textAnchor="middle"
+                pointerEvents="none"
+              >
+                {spotlight.measureNode.label}
+              </text>
+              <text
+                x={0}
+                y={-CARD_H / 2 - 4}
+                textAnchor="middle"
+                className="zone-tag-measure"
+              >
+                MEASURE
+              </text>
+            </g>
+          )}
+
+          {/* Zone labels */}
+          <ZoneLabel
+            text="DIMENSIONS / TIME"
+            x={DEFAULT_LAYOUT.originX + DEFAULT_LAYOUT.factToFirstDimGap - 30}
+            y={DEFAULT_LAYOUT.originY - 36}
+          />
+          <ZoneLabel
+            text="FACTS"
+            x={DEFAULT_LAYOUT.originX - 50}
+            y={DEFAULT_LAYOUT.originY + DEFAULT_LAYOUT.dimToFirstFactGap - 8}
+            rotate={-90}
+          />
+        </g>
+      </svg>
       <div ref={tooltipRef} className="graph-tooltip" />
     </div>
+  );
+}
+
+// --------------------------------------------------------------------------- //
+// Sub-components
+// --------------------------------------------------------------------------- //
+
+function CardinalityGlyph({ edge, kind }: { edge: EdgeView; kind: "dim" | "fact" }) {
+  const pos = cardinalityGlyphPosition(
+    edge.source.position,
+    edge.target.position,
+    CARD_W,
+    CARD_H,
+    kind,
+  );
+  if (!pos) return null;
+  // Determine which end is the dim (always shows "1") and which is the fact.
+  const sourceIsDim = isDimZone(edge.source.classification);
+  const sourceIsFact = isFactZone(edge.source.classification);
+  let glyph = "";
+  if (kind === "dim") {
+    glyph = oneSideGlyph(edge.rel.cardinality, sourceIsDim);
+  } else {
+    glyph = manySideGlyph(edge.rel.cardinality, sourceIsFact);
+  }
+  return (
+    <text
+      x={pos.x}
+      y={pos.y}
+      className="card-glyph"
+      pointerEvents="none"
+    >
+      {glyph}
+    </text>
+  );
+}
+
+function ZoneLabel({
+  text,
+  x,
+  y,
+  rotate = 0,
+}: {
+  text: string;
+  x: number;
+  y: number;
+  rotate?: number;
+}) {
+  return (
+    <text
+      x={x}
+      y={y}
+      className="zone-label"
+      transform={rotate ? `rotate(${rotate}, ${x}, ${y})` : undefined}
+      pointerEvents="none"
+    >
+      {text}
+    </text>
   );
 }
 
@@ -351,44 +523,9 @@ export function ForceGraph() {
 // Helpers
 // --------------------------------------------------------------------------- //
 
-function labelFor(d: NodeDatum, view: "semantic" | "source"): string {
-  if (d.kind === "measure") return d.label;
-  if (view === "source" && d.sourceLabel) return d.sourceLabel;
-  return d.label;
-}
-
-function arrowMarker(defs: any, id: string, color: string) {
-  defs
-    .append("marker")
-    .attr("id", id)
-    .attr("viewBox", "0 -5 10 10")
-    .attr("refX", 18)
-    .attr("refY", 0)
-    .attr("markerWidth", 6)
-    .attr("markerHeight", 6)
-    .attr("orient", "auto")
-    .append("path")
-    .attr("d", "M 0,-5 L 10,0 L 0,5 Z")
-    .attr("fill", color);
-}
-
-function showTooltip(el: HTMLDivElement | null, e: MouseEvent, d: NodeDatum) {
-  if (!el) return;
-  const semantic = d.label;
-  const source = d.sourceLabel;
-  el.innerHTML = `
-    <div class="tt-name">${escape(semantic)}</div>
-    ${source ? `<div class="tt-source">${escape(source)}</div>` : ""}
-    <div class="tt-class">${d.classification}</div>
-  `;
-  el.style.opacity = "1";
-  el.style.left = `${e.clientX + 14}px`;
-  el.style.top = `${e.clientY + 14}px`;
-}
-
-function hideTooltip(el: HTMLDivElement | null) {
-  if (!el) return;
-  el.style.opacity = "0";
+function labelFor(n: NodeView, view: "semantic" | "source"): string {
+  if (view === "source" && n.sourceLabel) return n.sourceLabel;
+  return n.label;
 }
 
 function escape(s: string): string {
@@ -397,145 +534,14 @@ function escape(s: string): string {
   );
 }
 
-function applyHighlight(
-  svg: SVGSVGElement,
-  selection: ReturnType<typeof useStore.getState>["selection"],
-  measureGraph: ReturnType<typeof useStore.getState>["measureGraph"],
-) {
-  const sel = select(svg);
-  const noSelection = !selection;
-
-  if (noSelection) {
-    sel
-      .selectAll<SVGGElement, NodeDatum>("g.node")
-      .style("opacity", 1);
-    sel
-      .selectAll<SVGGElement, LinkDatum>("g.link")
-      .each(function (d) {
-        const g = select(this);
-        const style = stylize(d, false, false, false);
-        applyEdgeStyle(g, style, d);
-      });
-    return;
-  }
-
-  if (selection?.kind === "table") {
-    const focusId = `t:${selection.name}`;
-    sel
-      .selectAll<SVGGElement, NodeDatum>("g.node")
-      .style("opacity", (n) => (n.id === focusId ? 1 : 0.25));
-    sel
-      .selectAll<SVGGElement, LinkDatum>("g.link")
-      .each(function (d) {
-        const touches =
-          (d.source as NodeDatum).id === focusId || (d.target as NodeDatum).id === focusId;
-        const style = stylize(d, touches, false, !touches);
-        applyEdgeStyle(select(this), style, d);
-      });
-    return;
-  }
-
-  if (selection?.kind === "measure") {
-    if (!measureGraph) {
-      sel
-        .selectAll<SVGGElement, NodeDatum>("g.node")
-        .style("opacity", 0.5);
-      sel
-        .selectAll<SVGGElement, LinkDatum>("g.link")
-        .each(function (d) {
-          const style = stylize(d, false, false, true);
-          applyEdgeStyle(select(this), style, d);
-        });
-      return;
-    }
-    const direct = new Set(measureGraph.direct_tables.map((t) => `t:${t}`));
-    const indirect = new Set(measureGraph.indirect_tables.map((t) => `t:${t.table}`));
-    const indirectAmbiguous = new Set(
-      measureGraph.indirect_tables.filter((t) => t.ambiguous).map((t) => `t:${t.table}`),
-    );
-    const highlightedRels = new Set<string>();
-    for (const it of measureGraph.indirect_tables) {
-      for (const path of it.paths) {
-        for (const hop of path.hops) {
-          highlightedRels.add(`r:${hop.relationship_id}`);
-        }
-      }
-    }
-
-    sel
-      .selectAll<SVGGElement, NodeDatum>("g.node")
-      .style("opacity", (n) =>
-        direct.has(n.id) || indirect.has(n.id) ? 1 : 0.18,
-      );
-
-    sel
-      .selectAll<SVGGElement, LinkDatum>("g.link")
-      .each(function (d) {
-        const isHighlighted = highlightedRels.has(d.id);
-        const sourceId = (d.source as NodeDatum).id;
-        const targetId = (d.target as NodeDatum).id;
-        const ambiguous =
-          isHighlighted &&
-          (indirectAmbiguous.has(sourceId) || indirectAmbiguous.has(targetId));
-        const style = stylize(d, isHighlighted, ambiguous, !isHighlighted);
-        applyEdgeStyle(select(this), style, d);
-      });
-  }
+/** Glyph for the "one side" of a relationship. */
+function oneSideGlyph(card: Cardinality, _sourceIsDim: boolean): string {
+  if (card === "many_to_many") return "*";
+  return "1";
 }
 
-function stylize(
-  d: LinkDatum,
-  highlighted: boolean,
-  ambiguous: boolean,
-  dimmed: boolean,
-): EdgeStyle {
-  if (d.kind === "direct") {
-    return styleForDirect({ dimmed });
-  }
-  return styleForRelationship({
-    isActive: d.rel?.is_active ?? true,
-    crossfilter: d.rel?.crossfilter ?? "single",
-    cardinality: d.rel?.cardinality ?? "many_to_one",
-    highlighted,
-    ambiguous,
-    dimmed,
-  });
-}
-
-function applyEdgeStyle(g: any, style: EdgeStyle, d: LinkDatum) {
-  const line = g.select("line");
-  line
-    .attr("stroke", style.stroke)
-    .attr("stroke-width", style.strokeWidth)
-    .attr("stroke-dasharray", style.dasharray ?? null)
-    .attr("opacity", style.opacity)
-    .attr(
-      "marker-end",
-      style.markerEnd === "none"
-        ? null
-        : style.stroke.includes("F59E0B")
-          ? "url(#arrow-amber)"
-          : style.markerEnd === "arrow"
-            ? "url(#arrow)"
-            : null,
-    )
-    .attr(
-      "marker-start",
-      style.markerStart === "none"
-        ? null
-        : style.stroke.includes("F59E0B")
-          ? "url(#arrow-amber)"
-          : "url(#arrow-bidi-start)",
-    );
-
-  const text = g.select("text");
-  if (d.kind === "relationship" && style.opacity > 0.5 && d.rel) {
-    text
-      .text(cardinalityGlyph(d.rel.cardinality))
-      .attr("fill", "var(--text-2)")
-      .attr("opacity", 0.9)
-      .attr("font-size", 9);
-  } else {
-    text.text("").attr("opacity", 0);
-  }
+/** Glyph for the "many side" of a relationship. */
+function manySideGlyph(card: Cardinality, _sourceIsFact: boolean): string {
+  if (card === "one_to_one") return "1";
+  return "*";
 }

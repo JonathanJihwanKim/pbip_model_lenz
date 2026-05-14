@@ -733,6 +733,81 @@ pre {
   bottom: 8px;
 }
 
+/* Bus Layout — table cards, edges, and labels */
+.bus-graph .card-rect {
+  fill: var(--bg-2);
+  stroke: var(--border);
+  stroke-width: 1;
+  transition: stroke 120ms, fill 120ms;
+}
+.bus-graph .node:hover .card-rect {
+  stroke: var(--accent);
+}
+.bus-graph .node-fact .card-rect {
+  fill: rgba(31, 111, 235, 0.18);
+  stroke: rgba(31, 111, 235, 0.55);
+}
+.bus-graph .node-dim .card-rect {
+  fill: rgba(63, 182, 139, 0.16);
+  stroke: rgba(63, 182, 139, 0.55);
+}
+.bus-graph .node-time .card-rect {
+  fill: rgba(225, 169, 56, 0.18);
+  stroke: rgba(225, 169, 56, 0.55);
+}
+.bus-graph .node-parameter .card-rect {
+  fill: rgba(160, 164, 171, 0.16);
+  stroke: rgba(160, 164, 171, 0.45);
+  stroke-dasharray: 3 2;
+}
+.bus-graph .node-calculation_group .card-rect {
+  fill: rgba(212, 76, 123, 0.18);
+  stroke: rgba(212, 76, 123, 0.55);
+}
+.bus-graph .node-other .card-rect {
+  fill: rgba(148, 163, 184, 0.14);
+  stroke: rgba(148, 163, 184, 0.40);
+  stroke-dasharray: 3 2;
+}
+.bus-graph .measure-rect {
+  fill: rgba(124, 92, 255, 0.22);
+  stroke: var(--accent);
+  stroke-width: 1.5;
+}
+.bus-graph .card-label {
+  fill: var(--text-0);
+  font-size: 11px;
+  font-family: var(--font-ui);
+  font-weight: 500;
+}
+.bus-graph .measure-label {
+  fill: var(--text-0);
+  font-weight: 600;
+}
+.bus-graph .zone-tag-measure {
+  font-size: 9px;
+  fill: var(--accent);
+  font-weight: 600;
+  letter-spacing: 0.08em;
+}
+.bus-graph .card-glyph {
+  font-size: 11px;
+  font-weight: 600;
+  fill: var(--text-2);
+  font-family: var(--font-mono);
+}
+.bus-graph .zone-label {
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  fill: var(--text-2);
+  text-transform: uppercase;
+  opacity: 0.55;
+  font-weight: 600;
+}
+.bus-graph .edge {
+  transition: opacity 160ms;
+}
+
 .graph-tooltip {
   position: fixed;
   pointer-events: none;
