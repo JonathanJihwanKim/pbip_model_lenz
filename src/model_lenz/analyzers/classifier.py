@@ -77,6 +77,20 @@ def _classify_one(t: Table, outbound_fk_edges: int, inbound_one_edges: int) -> C
     if inbound_one_edges >= 1 and fk_columns == 0:
         return "dim"
 
+    # Snowflake middle node: a fact (or another dim) joins to this table as
+    # the one-side, but the table also has its own outbound FK to a parent
+    # dim. Without this rule, snowflake intermediates fall through to "other"
+    # and end up in the disconnected zone instead of the dim row.
+    if inbound_one_edges >= 1 and outbound_fk_edges >= 1:
+        return "dim"
+
+    # Snowflake leaf: nothing references this table as the one-side, but it
+    # has exactly one outbound FK to a parent dim. Classic example: a
+    # "Relative Dates" table that links only to the Calendar/Time dim.
+    # Multi-FK leaves (likely facts) are caught by the rules above.
+    if inbound_one_edges == 0 and outbound_fk_edges == 1:
+        return "dim"
+
     if len(t.columns) <= 2:
         return "parameter"
 
