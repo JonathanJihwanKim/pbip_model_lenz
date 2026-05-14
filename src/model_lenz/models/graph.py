@@ -58,6 +58,9 @@ class IndirectTable(BaseModel):
 class MeasureRef(BaseModel):
     name: str
     table: str
+    expression: str | None = None
+    direct_table_count: int = 0
+    indirect_table_count: int = 0
 
 
 class ColumnRef(BaseModel):

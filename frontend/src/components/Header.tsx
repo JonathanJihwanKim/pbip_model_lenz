@@ -1,3 +1,4 @@
+import { useEffect, useRef, useState } from "react";
 import { useStore } from "../store";
 
 export function Header({ pbipPath }: { pbipPath: string }) {
@@ -36,8 +37,13 @@ export function Header({ pbipPath }: { pbipPath: string }) {
       </div>
 
       <div className="header-controls">
-        <ViewToggle view={view} onChange={setView} />
-        <DepthSelect depth={depth} onChange={setDepth} />
+        <ControlGroup label="Labels">
+          <ViewToggle view={view} onChange={setView} />
+        </ControlGroup>
+        <ControlGroup label="Hops">
+          <DepthSelect depth={depth} onChange={setDepth} />
+          <DepthHelp />
+        </ControlGroup>
         <button
           className="icon-btn"
           aria-label="Toggle theme"
@@ -51,14 +57,35 @@ export function Header({ pbipPath }: { pbipPath: string }) {
   );
 }
 
-function ViewToggle({ view, onChange }: { view: "semantic" | "source"; onChange: (v: "semantic" | "source") => void }) {
+function ControlGroup({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <div className="seg-toggle" role="tablist" aria-label="Label view">
+    <div className="control-group">
+      <span className="control-label">{label}</span>
+      {children}
+    </div>
+  );
+}
+
+function ViewToggle({
+  view,
+  onChange,
+}: {
+  view: "semantic" | "source";
+  onChange: (v: "semantic" | "source") => void;
+}) {
+  return (
+    <div
+      className="seg-toggle"
+      role="tablist"
+      aria-label="Label view"
+      title="Switch table labels between PBIP names (Semantic) and source-system names from Power Query (Source)"
+    >
       <button
         role="tab"
         aria-selected={view === "semantic"}
         className={view === "semantic" ? "active" : ""}
         onClick={() => onChange("semantic")}
+        title="Semantic — table names as they appear in Power BI Desktop / TMDL"
       >
         Semantic
       </button>
@@ -67,6 +94,7 @@ function ViewToggle({ view, onChange }: { view: "semantic" | "source"; onChange:
         aria-selected={view === "source"}
         className={view === "source" ? "active" : ""}
         onClick={() => onChange("source")}
+        title="Source — source-system table names extracted from the Power Query (M) code"
       >
         Source
       </button>
@@ -74,18 +102,74 @@ function ViewToggle({ view, onChange }: { view: "semantic" | "source"; onChange:
   );
 }
 
-function DepthSelect({ depth, onChange }: { depth: number; onChange: (d: number) => void }) {
+function DepthSelect({
+  depth,
+  onChange,
+}: {
+  depth: number;
+  onChange: (d: number) => void;
+}) {
   return (
-    <label className="depth-select">
-      <span>Depth</span>
-      <select value={depth} onChange={(e) => onChange(Number(e.target.value))}>
-        {[1, 2, 3, 4, 5].map((d) => (
-          <option key={d} value={d}>
-            {d}
-          </option>
-        ))}
-      </select>
-    </label>
+    <select
+      value={depth}
+      onChange={(e) => onChange(Number(e.target.value))}
+      title="How many relationship hops to traverse when finding indirect dependencies"
+      aria-label="Indirect-dependency hops"
+    >
+      {[1, 2, 3, 4, 5].map((d) => (
+        <option key={d} value={d}>
+          {d}
+        </option>
+      ))}
+    </select>
+  );
+}
+
+function DepthHelp() {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [open]);
+
+  return (
+    <div className="help-anchor" ref={ref}>
+      <button
+        className="help-icon"
+        aria-label="What does Hops do?"
+        onClick={() => setOpen((v) => !v)}
+      >
+        ⓘ
+      </button>
+      {open && (
+        <div className="help-popover" role="tooltip">
+          <h4>What "Hops" controls</h4>
+          <p>
+            How many relationship steps Model Lenz walks from the tables your
+            measure directly references, looking for tables that <em>also</em>{" "}
+            affect the result via filter propagation.
+          </p>
+          <ul>
+            <li>
+              <strong>1</strong> — only dimensions one hop from a directly-referenced fact.
+            </li>
+            <li>
+              <strong>2</strong> <em>(recommended)</em> — catches typical
+              snowflakes (e.g. <code>HFB → Range → fact</code>).
+            </li>
+            <li>
+              <strong>3–5</strong> — deeper chains; usually noise.
+            </li>
+          </ul>
+        </div>
+      )}
+    </div>
   );
 }
 

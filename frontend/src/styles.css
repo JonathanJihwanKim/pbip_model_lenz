@@ -217,15 +217,79 @@ pre {
   color: var(--text-0);
 }
 
-.depth-select {
+.control-group {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  color: var(--text-2);
-  font-size: 12px;
 }
-.depth-select select {
+.control-label {
+  color: var(--text-2);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-weight: 500;
+}
+.control-group select {
   padding: 4px 6px;
+}
+
+/* info icon + popover */
+.help-anchor {
+  position: relative;
+  display: inline-flex;
+}
+.help-icon {
+  width: 18px;
+  height: 18px;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  background: var(--bg-1);
+  color: var(--text-2);
+  font-size: 11px;
+  line-height: 1;
+  padding: 0;
+  display: inline-grid;
+  place-items: center;
+}
+.help-icon:hover {
+  color: var(--text-0);
+  border-color: var(--accent);
+}
+.help-popover {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  background: var(--bg-1);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-md);
+  padding: 12px 14px;
+  width: 320px;
+  font-size: 12px;
+  z-index: 50;
+}
+.help-popover h4 {
+  margin: 0 0 6px;
+  font-size: 12px;
+  color: var(--text-0);
+}
+.help-popover p {
+  margin: 0 0 8px;
+  color: var(--text-1);
+}
+.help-popover ul {
+  list-style: disc;
+  padding-left: 18px;
+  color: var(--text-1);
+}
+.help-popover li {
+  margin-bottom: 3px;
+}
+.help-popover code {
+  background: var(--bg-2);
+  padding: 1px 4px;
+  border-radius: 3px;
+  font-size: 11px;
 }
 
 /* ----------------------------- sidebar ---------------------------------- */
@@ -292,24 +356,49 @@ pre {
   background: var(--bg-3);
   border-radius: 4px;
 }
-.sidebar-list details {
+.sidebar-list .folder {
   margin-bottom: 4px;
 }
-.sidebar-list summary {
+.folder-summary {
+  width: 100%;
   cursor: pointer;
   padding: 4px 6px;
   font-weight: 500;
   color: var(--text-1);
-  list-style: none;
   display: flex;
-  justify-content: space-between;
   align-items: center;
+  gap: 6px;
   font-size: 12px;
   text-transform: uppercase;
   letter-spacing: 0.04em;
+  border: none;
+  background: none;
+  text-align: left;
+  border-radius: var(--radius-sm);
 }
-.sidebar-list summary::-webkit-details-marker {
-  display: none;
+.folder-summary:hover:not(:disabled) {
+  background: var(--bg-2);
+  color: var(--text-0);
+}
+.folder-summary:disabled {
+  cursor: default;
+  opacity: 0.7;
+}
+.folder-caret {
+  display: inline-block;
+  width: 12px;
+  color: var(--text-2);
+  font-size: 10px;
+  flex-shrink: 0;
+}
+.folder.open .folder-caret {
+  color: var(--accent);
+}
+.folder-name {
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .sidebar-list .count {
   color: var(--text-2);
@@ -486,6 +575,45 @@ pre {
 .path-arrow {
   color: var(--text-2);
 }
+
+/* referenced-measure inline preview */
+.ref-measure-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.ref-measure-item {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 8px 10px;
+  cursor: pointer;
+  transition: border-color 100ms, background 100ms;
+  background: var(--bg-1);
+}
+.ref-measure-item:hover {
+  border-color: var(--accent);
+  background: var(--bg-2);
+}
+.ref-measure-head {
+  margin-bottom: 4px;
+}
+.dax-mini {
+  margin: 4px 0;
+  padding: 6px 8px;
+  font-size: 11px;
+  max-height: 120px;
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  white-space: pre-wrap;
+}
+.ref-measure-counts {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--text-2);
+}
 .badge {
   display: inline-block;
   border: 1px solid var(--border);
@@ -546,6 +674,25 @@ pre {
   stroke-width: 3px;
   stroke-linecap: round;
   stroke-linejoin: round;
+}
+
+.graph-axis-label {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  color: var(--text-2);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  pointer-events: none;
+  opacity: 0.6;
+  font-weight: 500;
+}
+.graph-axis-label-top {
+  top: 8px;
+}
+.graph-axis-label-bottom {
+  bottom: 8px;
 }
 
 .graph-tooltip {

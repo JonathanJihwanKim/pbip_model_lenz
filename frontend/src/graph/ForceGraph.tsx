@@ -5,6 +5,7 @@ import {
   forceLink,
   forceManyBody,
   forceSimulation,
+  forceY,
   type Simulation,
   type SimulationLinkDatum,
   type SimulationNodeDatum,
@@ -39,6 +40,26 @@ interface LinkDatum extends SimulationLinkDatum<NodeDatum> {
   rel?: RelationshipItem;
 }
 
+/** Y-axis target per classification: dims/time on top, facts on the bottom. */
+function yTargetFor(classification: NodeDatum["classification"]): number {
+  switch (classification) {
+    case "dim":
+    case "time":
+      return -180;
+    case "fact":
+      return 180;
+    case "calculation_group":
+      return 240;
+    case "parameter":
+    case "other":
+      return 0;
+    case "measure":
+      return -260;
+    default:
+      return 0;
+  }
+}
+
 export function ForceGraph() {
   const tables = useStore((s) => s.tables);
   const relationships = useStore((s) => s.relationships);
@@ -55,14 +76,13 @@ export function ForceGraph() {
   const simRef = useRef<Simulation<NodeDatum, LinkDatum> | null>(null);
   const tooltipRef = useRef<HTMLDivElement>(null);
 
-  // Build the persistent table-only graph; the measure node (if any) is
-  // added via a separate update path so the layout doesn't reset on click.
+  // Build the FULL graph once — every table, every relationship.
+  // Visibility (classFilter + selection-driven reveal) is a render-time
+  // concern below, so toggling chips never resets the layout.
   const baseData = useMemo(() => {
     const tableLookup = new Map(tables.map((t) => [t.name, t]));
-    const visibleTables = tables.filter((t) => classFilter.has(t.classification));
-    const visibleSet = new Set(visibleTables.map((t) => t.name));
 
-    const nodes: NodeDatum[] = visibleTables.map((t) => ({
+    const nodes: NodeDatum[] = tables.map((t) => ({
       id: `t:${t.name}`,
       label: t.name,
       sourceLabel: t.source_table,
@@ -71,13 +91,7 @@ export function ForceGraph() {
     }));
 
     const links: LinkDatum[] = relationships
-      .filter(
-        (r) =>
-          visibleSet.has(r.from_table) &&
-          visibleSet.has(r.to_table) &&
-          tableLookup.has(r.from_table) &&
-          tableLookup.has(r.to_table),
-      )
+      .filter((r) => tableLookup.has(r.from_table) && tableLookup.has(r.to_table))
       .map((r) => ({
         id: `r:${r.id}`,
         source: `t:${r.from_table}`,
@@ -87,7 +101,26 @@ export function ForceGraph() {
       }));
 
     return { nodes, links };
-  }, [tables, relationships, classFilter]);
+  }, [tables, relationships]);
+
+  // Visibility set: filter chips + (when a measure is selected) reveal any
+  // direct/indirect tables of the selected measure even if their classification
+  // is normally hidden. This lets a fact-only graph still surface a parameter
+  // table when the selected measure references it.
+  const visibleNodeIds = useMemo(() => {
+    const visible = new Set<string>();
+    for (const t of tables) {
+      if (classFilter.has(t.classification)) visible.add(`t:${t.name}`);
+    }
+    if (selection?.kind === "measure" && measureGraph) {
+      for (const name of measureGraph.direct_tables) visible.add(`t:${name}`);
+      for (const it of measureGraph.indirect_tables) visible.add(`t:${it.table}`);
+    }
+    if (selection?.kind === "table") {
+      visible.add(`t:${selection.name}`);
+    }
+    return visible;
+  }, [tables, classFilter, selection, measureGraph]);
 
   // ResizeObserver for the container.
   useEffect(() => {
@@ -103,14 +136,14 @@ export function ForceGraph() {
     return () => ro.disconnect();
   }, []);
 
-  // Build / rebuild the simulation when the base data changes.
+  // Build / rebuild the simulation when the *base* graph (tables+rels) changes.
+  // Filter chip toggles do NOT rebuild — see visibleNodeIds effect below.
   useEffect(() => {
     const svg = svgRef.current;
     if (!svg) return;
 
     const { w, h } = sizeRef.current;
 
-    // Tear down previous handlers.
     select(svg).selectAll("*").remove();
 
     const defs = select(svg).append("defs");
@@ -128,7 +161,12 @@ export function ForceGraph() {
       .on("zoom", (e) => root.attr("transform", e.transform.toString()));
     select(svg).call(z);
 
-    const nodes = baseData.nodes.map((n) => ({ ...n }));
+    const nodes: NodeDatum[] = baseData.nodes.map((n) => {
+      const seeded: NodeDatum = { ...n };
+      // Seed Y near the target so the layered pattern emerges immediately.
+      seeded.y = yTargetFor(n.classification) + (Math.random() - 0.5) * 60;
+      return seeded;
+    });
     const links = baseData.links.map((l) => ({ ...l }));
 
     const sim = forceSimulation<NodeDatum>(nodes)
@@ -136,20 +174,21 @@ export function ForceGraph() {
         "link",
         forceLink<NodeDatum, LinkDatum>(links)
           .id((d) => d.id)
-          .distance((d) => (d.kind === "direct" ? 90 : 110))
-          .strength(0.5),
+          .distance((d) => (d.kind === "direct" ? 90 : 120))
+          .strength(0.4),
       )
       .force("charge", forceManyBody<NodeDatum>().strength(-260))
       .force("center", forceCenter(w / 2, h / 2))
       .force(
         "collide",
-        forceCollide<NodeDatum>((d) => styleFor(d.classification).size + 12),
+        forceCollide<NodeDatum>((d) => styleFor(d.classification).size + 14),
       )
+      // Layered Y force: dims/time pulled to top, facts to bottom.
+      .force("y-layer", forceY<NodeDatum>((d) => h / 2 + yTargetFor(d.classification)).strength(0.18))
       .alphaDecay(0.04);
 
     simRef.current = sim;
 
-    // Render link & node selections.
     const linkSel = linkGroup
       .selectAll<SVGGElement, LinkDatum>("g.link")
       .data(links, (d) => d.id)
@@ -245,7 +284,6 @@ export function ForceGraph() {
     });
 
     select(svg).on("click", () => {
-      // background click — leave selection alone, just hide tooltip
       hideTooltip(tooltipRef.current);
     });
 
@@ -254,6 +292,23 @@ export function ForceGraph() {
       simRef.current = null;
     };
   }, [baseData, selectTable, pinSelection]);
+
+  // Apply visibility — render-only toggle, never touches the simulation.
+  useEffect(() => {
+    const svg = svgRef.current;
+    if (!svg) return;
+    const sel = select(svg);
+    sel
+      .selectAll<SVGGElement, NodeDatum>("g.node")
+      .style("display", (n) => (visibleNodeIds.has(n.id) ? null : "none"));
+    sel
+      .selectAll<SVGGElement, LinkDatum>("g.link")
+      .style("display", (d) => {
+        const s = (d.source as NodeDatum).id;
+        const t = (d.target as NodeDatum).id;
+        return visibleNodeIds.has(s) && visibleNodeIds.has(t) ? null : "none";
+      });
+  }, [visibleNodeIds]);
 
   // Update node labels when view mode changes.
   useEffect(() => {
@@ -281,6 +336,12 @@ export function ForceGraph() {
         role="img"
         aria-label="Model relationship graph"
       />
+      <div className="graph-axis-label graph-axis-label-top" aria-hidden>
+        Dimensions / Time
+      </div>
+      <div className="graph-axis-label graph-axis-label-bottom" aria-hidden>
+        Facts
+      </div>
       <div ref={tooltipRef} className="graph-tooltip" />
     </div>
   );
@@ -374,10 +435,8 @@ function applyHighlight(
     return;
   }
 
-  // Measure selection: highlight direct + indirect tables, dim the rest.
   if (selection?.kind === "measure") {
     if (!measureGraph) {
-      // Loading — dim all subtly.
       sel
         .selectAll<SVGGElement, NodeDatum>("g.node")
         .style("opacity", 0.5);
@@ -469,7 +528,6 @@ function applyEdgeStyle(g: any, style: EdgeStyle, d: LinkDatum) {
           : "url(#arrow-bidi-start)",
     );
 
-  // Cardinality glyph for highlighted relationship edges only.
   const text = g.select("text");
   if (d.kind === "relationship" && style.opacity > 0.5 && d.rel) {
     text

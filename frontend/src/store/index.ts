@@ -32,6 +32,8 @@ interface State {
   depth: number;
   search: string;
   classFilter: Set<string>; // selected table classifications
+  expandedFolders: Set<string>; // explicitly expanded sidebar folders
+  collapsedFolders: Set<string>; // explicitly collapsed (overrides default)
 
   // Selection.
   selection: Selection | null;
@@ -46,6 +48,8 @@ interface State {
   setDepth: (d: number) => void;
   setSearch: (s: string) => void;
   toggleClassFilter: (c: string) => void;
+  toggleFolder: (folder: string) => void;
+  expandFolder: (folder: string) => void;
   selectMeasure: (table: string, name: string) => Promise<void>;
   selectTable: (name: string) => void;
   clearSelection: () => void;
@@ -54,6 +58,29 @@ interface State {
 }
 
 const ALL_CLASSES = ["fact", "dim", "parameter", "time", "calculation_group", "other"];
+const BACKBONE_CLASSES = ["fact", "dim", "time"];
+
+const STORAGE_EXPANDED = "model-lenz-expanded-folders";
+const STORAGE_COLLAPSED = "model-lenz-collapsed-folders";
+
+function loadSet(key: string): Set<string> {
+  try {
+    const raw = localStorage.getItem(key);
+    if (!raw) return new Set();
+    const arr = JSON.parse(raw);
+    return new Set(Array.isArray(arr) ? arr : []);
+  } catch {
+    return new Set();
+  }
+}
+
+function saveSet(key: string, s: Set<string>): void {
+  try {
+    localStorage.setItem(key, JSON.stringify([...s]));
+  } catch {
+    // localStorage can throw in private mode — fail silently.
+  }
+}
 
 export const useStore = create<State>((set, get) => ({
   summary: null,
@@ -67,7 +94,11 @@ export const useStore = create<State>((set, get) => ({
   theme: (localStorage.getItem("model-lenz-theme") as Theme) || "dark",
   depth: 2,
   search: "",
-  classFilter: new Set(ALL_CLASSES),
+  // Default: only the structural backbone is visible. Param tables, calc
+  // groups, and "other" tables are revealed on demand (or by toggling chips).
+  classFilter: new Set(BACKBONE_CLASSES),
+  expandedFolders: loadSet(STORAGE_EXPANDED),
+  collapsedFolders: loadSet(STORAGE_COLLAPSED),
 
   selection: null,
   pinned: [],
@@ -106,6 +137,38 @@ export const useStore = create<State>((set, get) => ({
     if (cur.has(c)) cur.delete(c);
     else cur.add(c);
     set({ classFilter: cur });
+  },
+
+  toggleFolder: (folder) => {
+    const expanded = new Set(get().expandedFolders);
+    const collapsed = new Set(get().collapsedFolders);
+    // The default-open rule (folder size <= 10) is decided by the Sidebar.
+    // Here we just record an explicit user choice that flips it.
+    if (expanded.has(folder)) {
+      expanded.delete(folder);
+      collapsed.add(folder);
+    } else if (collapsed.has(folder)) {
+      collapsed.delete(folder);
+      expanded.add(folder);
+    } else {
+      // No explicit state yet → record the inverted-default choice.
+      // The sidebar passes us "what the user wants now"; we flip whatever the
+      // current effective state is. Simpler: just toggle into expanded.
+      expanded.add(folder);
+    }
+    saveSet(STORAGE_EXPANDED, expanded);
+    saveSet(STORAGE_COLLAPSED, collapsed);
+    set({ expandedFolders: expanded, collapsedFolders: collapsed });
+  },
+
+  expandFolder: (folder) => {
+    const expanded = new Set(get().expandedFolders);
+    const collapsed = new Set(get().collapsedFolders);
+    if (collapsed.has(folder)) collapsed.delete(folder);
+    expanded.add(folder);
+    saveSet(STORAGE_EXPANDED, expanded);
+    saveSet(STORAGE_COLLAPSED, collapsed);
+    set({ expandedFolders: expanded, collapsedFolders: collapsed });
   },
 
   selectMeasure: async (table, name) => {
@@ -152,3 +215,17 @@ export const useStore = create<State>((set, get) => ({
 }));
 
 export const ALL_CLASSIFICATIONS = ALL_CLASSES;
+export const DEFAULT_VISIBLE_CLASSIFICATIONS = BACKBONE_CLASSES;
+
+/** True iff the folder should appear open right now. */
+export function isFolderOpen(
+  folderName: string,
+  itemCount: number,
+  state: State,
+  searchActive: boolean,
+): boolean {
+  if (searchActive) return true; // search reveals everything
+  if (state.expandedFolders.has(folderName)) return true;
+  if (state.collapsedFolders.has(folderName)) return false;
+  return itemCount <= 10;
+}

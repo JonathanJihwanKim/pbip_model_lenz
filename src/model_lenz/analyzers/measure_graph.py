@@ -17,6 +17,7 @@ from model_lenz.models.graph import (
     UserelHint,
 )
 from model_lenz.models.semantic import Measure, Model
+from model_lenz.parsers.dax import extract_refs
 
 
 def build_measure_graph(
@@ -62,6 +63,27 @@ def build_measure_graph(
             "Unresolved bracket refs (not measures): " + ", ".join(sorted(truly_unknown))
         )
 
+    ref_previews: list[MeasureRef] = []
+    for name in referenced_measures:
+        if name not in measure_index:
+            continue
+        ref_m = measure_index[name]
+        ref_refs = extract_refs(ref_m.expression)
+        ref_indirect = rel_graph.walk(
+            set(ref_refs.tables),
+            max_depth=depth,
+            userel_hints=ref_refs.userel_hints,
+        )
+        ref_previews.append(
+            MeasureRef(
+                name=ref_m.name,
+                table=ref_m.table,
+                expression=ref_m.expression,
+                direct_table_count=len(ref_refs.tables),
+                indirect_table_count=len(ref_indirect),
+            )
+        )
+
     return MeasureGraph(
         measure={
             "name": measure.name,
@@ -74,11 +96,7 @@ def build_measure_graph(
         },
         direct_tables=direct_tables,
         direct_columns=[ColumnRef(table=t, column=c) for t, c in direct_columns],
-        referenced_measures=[
-            MeasureRef(name=name, table=measure_index[name].table)
-            for name in referenced_measures
-            if name in measure_index
-        ],
+        referenced_measures=ref_previews,
         userel_hints=[
             UserelHint(**{"from": f"{t1}.{c1}", "to": f"{t2}.{c2}"})
             for (t1, c1, t2, c2) in refs.direct.userel_hints

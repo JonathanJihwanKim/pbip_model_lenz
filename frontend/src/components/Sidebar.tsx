@@ -1,5 +1,5 @@
-import { useMemo, useState } from "react";
-import { ALL_CLASSIFICATIONS, useStore } from "../store";
+import { useEffect, useMemo, useState } from "react";
+import { ALL_CLASSIFICATIONS, isFolderOpen, useStore } from "../store";
 
 type Tab = "measures" | "tables";
 
@@ -22,6 +22,10 @@ export function Sidebar() {
   const selection = useStore((s) => s.selection);
   const selectMeasure = useStore((s) => s.selectMeasure);
   const selectTable = useStore((s) => s.selectTable);
+  const expandedFolders = useStore((s) => s.expandedFolders);
+  const collapsedFolders = useStore((s) => s.collapsedFolders);
+  const toggleFolder = useStore((s) => s.toggleFolder);
+  const expandFolder = useStore((s) => s.expandFolder);
 
   const measureGroups = useMemo(() => {
     const needle = search.toLowerCase();
@@ -42,12 +46,32 @@ export function Sidebar() {
     return Array.from(groups.entries()).sort(([a], [b]) => a.localeCompare(b));
   }, [measures, search]);
 
+  // When the selection changes to a measure, ensure its folder is open and
+  // the row is scrolled into view.
+  useEffect(() => {
+    if (selection?.kind !== "measure" || !selection.table) return;
+    const m = measures.find(
+      (x) => x.name === selection.name && x.table === selection.table,
+    );
+    if (!m) return;
+    const folder = m.display_folder ?? "(no folder)";
+    expandFolder(folder);
+    queueMicrotask(() => {
+      const el = document.querySelector<HTMLLIElement>(
+        `li[data-measure-key="${cssEscape(`${m.table}::${m.name}`)}"]`,
+      );
+      el?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    });
+  }, [selection, measures, expandFolder]);
+
   const filteredTables = useMemo(() => {
     const needle = search.toLowerCase();
     return tables
       .filter((t) => classFilter.has(t.classification))
       .filter((t) => (!needle ? true : t.name.toLowerCase().includes(needle)));
   }, [tables, search, classFilter]);
+
+  const searchActive = search.trim().length > 0;
 
   return (
     <aside className="sidebar">
@@ -87,32 +111,53 @@ export function Sidebar() {
 
       <div className="sidebar-list">
         {tab === "measures" &&
-          measureGroups.map(([folder, items]) => (
-            <details key={folder} open>
-              <summary>
-                {folder} <span className="count">{items.length}</span>
-              </summary>
-              <ul>
-                {items.map((m) => {
-                  const active =
-                    selection?.kind === "measure" &&
-                    selection.name === m.name &&
-                    selection.table === m.table;
-                  return (
-                    <li
-                      key={`${m.table}::${m.name}`}
-                      className={`list-row measure ${active ? "active" : ""}`}
-                      onClick={() => selectMeasure(m.table, m.name)}
-                      title={`${m.table} · ${m.name}`}
-                    >
-                      <span className="list-row-name">{m.name}</span>
-                      <span className="list-row-meta">{m.table}</span>
-                    </li>
-                  );
-                })}
-              </ul>
-            </details>
-          ))}
+          measureGroups.map(([folder, items]) => {
+            const open = isFolderOpen(
+              folder,
+              items.length,
+              { expandedFolders, collapsedFolders } as never,
+              searchActive,
+            );
+            return (
+              <section key={folder} className={`folder ${open ? "open" : "closed"}`}>
+                <button
+                  className="folder-summary"
+                  onClick={() => !searchActive && toggleFolder(folder)}
+                  disabled={searchActive}
+                  title={searchActive ? "Folders auto-expand while searching" : ""}
+                >
+                  <span className="folder-caret" aria-hidden>
+                    {open ? "▾" : "▸"}
+                  </span>
+                  <span className="folder-name">{folder}</span>
+                  <span className="count">{items.length}</span>
+                </button>
+                {open && (
+                  <ul>
+                    {items.map((m) => {
+                      const active =
+                        selection?.kind === "measure" &&
+                        selection.name === m.name &&
+                        selection.table === m.table;
+                      const key = `${m.table}::${m.name}`;
+                      return (
+                        <li
+                          key={key}
+                          data-measure-key={key}
+                          className={`list-row measure ${active ? "active" : ""}`}
+                          onClick={() => selectMeasure(m.table, m.name)}
+                          title={`${m.table} · ${m.name}`}
+                        >
+                          <span className="list-row-name">{m.name}</span>
+                          <span className="list-row-meta">{m.table}</span>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                )}
+              </section>
+            );
+          })}
 
         {tab === "tables" && (
           <ul>
@@ -138,4 +183,9 @@ export function Sidebar() {
       </div>
     </aside>
   );
+}
+
+function cssEscape(s: string): string {
+  // Minimal CSS attribute-selector escape.
+  return s.replace(/(["\\])/g, "\\$1");
 }

@@ -94,6 +94,9 @@ export interface ColumnRef {
 export interface MeasureRef {
   name: string;
   table: string;
+  expression: string | null;
+  direct_table_count: number;
+  indirect_table_count: number;
 }
 
 export interface UserelHint {

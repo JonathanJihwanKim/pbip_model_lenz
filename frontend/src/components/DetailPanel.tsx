@@ -96,11 +96,26 @@ function MeasureDetails({
 
       {graph.referenced_measures.length > 0 && (
         <Section title={`Referenced measures (${graph.referenced_measures.length})`}>
-          <ul className="list">
+          <ul className="list ref-measure-list">
             {graph.referenced_measures.map((m) => (
-              <li key={`${m.table}::${m.name}`}>
-                <strong>{m.name}</strong>
-                <span className="muted"> · {m.table}</span>
+              <li
+                key={`${m.table}::${m.name}`}
+                className="ref-measure-item"
+                onClick={() => useStore.getState().selectMeasure(m.table, m.name)}
+                title={`Open ${m.name}`}
+              >
+                <div className="ref-measure-head">
+                  <strong>{m.name}</strong>
+                  <span className="muted"> · {m.table}</span>
+                </div>
+                {m.expression && (
+                  <pre className="dax dax-mini">{trimDax(m.expression)}</pre>
+                )}
+                <div className="ref-measure-counts">
+                  <span className="badge mini">→ {m.direct_table_count} direct</span>
+                  <span className="badge mini">→ {m.indirect_table_count} indirect</span>
+                  <span className="muted">click to drill in</span>
+                </div>
               </li>
             ))}
           </ul>
@@ -312,4 +327,11 @@ function Meta({ label, value }: { label: string; value: string }) {
       <span className="muted">{label}:</span> {value}
     </span>
   );
+}
+
+function trimDax(expr: string): string {
+  // Show at most the first 6 lines so the inline preview stays compact.
+  const lines = expr.trim().split("\n");
+  if (lines.length <= 6) return lines.join("\n");
+  return lines.slice(0, 6).join("\n") + "\n…";
 }
