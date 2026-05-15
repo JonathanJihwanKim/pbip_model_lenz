@@ -55,6 +55,23 @@ A dev box has Model Lenz in **two** places:
 
 When `model-lenz` on the PATH does *not* reflect your code, you almost certainly forgot to rebuild the global tool. `dev.ps1 reinstall` does the whole dance (kill running processes, rebuild SPA, rebuild wheel, force-reinstall, hash-check the bundle). The HMR loop above bypasses both — Vite serves the SPA from source while uvicorn runs from the editable install.
 
+## Releasing — the version-drift footgun
+
+The release workflow ([.github/workflows/release.yml](.github/workflows/release.yml)) triggers on a `v*` tag push, builds the wheel from `pyproject.toml`, and publishes to PyPI via OIDC Trusted Publisher (no token).
+
+The wheel version comes from **two places that must stay in sync** before tagging:
+
+1. [pyproject.toml](pyproject.toml) — `version = "X.Y.Z"`
+2. [src/model_lenz/\_\_init\_\_.py](src/model_lenz/__init__.py) — `__version__ = "X.Y.Z"` (CLI's `model-lenz version` reads this; `server.py` exposes it via `/healthz`)
+
+Tagging `vX.Y.Z` without bumping both files publishes a wheel labeled with the *old* version and creates a confusing mismatch between the tag, the GitHub release, and the artifact on PyPI. **Always bump both, commit, then tag** — never tag a commit whose version files don't already match the tag name.
+
+`model-lenz version` against the editable .venv after a bump is the quickest sanity check.
+
+PyPI doesn't allow re-uploading the same version even if a previous publish failed. If a release errors halfway, bump the patch version forward (`0.1.1` → `0.1.2`) rather than re-tagging the same version on a new commit.
+
+Future cleanup worth considering: switch to `hatch-vcs` so the version is derived from the git tag at build time, eliminating the two-file drift class entirely. Not urgent — keep this gotcha in mind until then.
+
 ## Architecture — the data flow that touches every layer
 
 A request to `GET /api/measures/{table}/{name}/graph` exercises the whole pipeline. Tracing it is the fastest way to orient:
