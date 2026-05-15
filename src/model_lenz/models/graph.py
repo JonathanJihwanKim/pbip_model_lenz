@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -78,7 +78,7 @@ class UserelHint(BaseModel):
 
 
 class MeasureGraph(BaseModel):
-    measure: dict
+    measure: dict[str, Any]
     direct_tables: list[str] = Field(default_factory=list)
     direct_columns: list[ColumnRef] = Field(default_factory=list)
     referenced_measures: list[MeasureRef] = Field(default_factory=list)
