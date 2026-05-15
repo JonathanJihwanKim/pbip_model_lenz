@@ -56,8 +56,10 @@ jobs:
 
       - name: Unit tests
         shell: bash
-        env:
-          MODEL_LENZ_SAMPLE_PBIP: examples/tiny_pbip
+        # MODEL_LENZ_SAMPLE_PBIP intentionally NOT set: tests in tests/unit/test_api_routes.py
+        # and tests/e2e/test_sample_pbip.py hard-code assertions against a private fixture
+        # (61 tables, 274 measures). They self-skip when SAMPLE.exists() is false. CI runs the
+        # rest of the suite (parser, classifier, walker, DAX/M extractor tests).
         run: |
           source .venv/bin/activate || source .venv/Scripts/activate
           pytest tests -v
