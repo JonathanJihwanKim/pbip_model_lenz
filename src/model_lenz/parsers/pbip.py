@@ -26,7 +26,6 @@ from model_lenz.models.semantic import (
 from model_lenz.parsers import m_query, tmdl
 from model_lenz.parsers.tmdl import TmdlBlock
 
-
 # --------------------------------------------------------------------------- #
 # Discovery
 # --------------------------------------------------------------------------- #
@@ -301,8 +300,8 @@ def _propagate_upstream_lineage(model: Model) -> None:
         seen.add(name)
         ex = expr_index[name]
         if ex.source_lineage and ex.source_lineage.table:
-            l = ex.source_lineage
-            return (l.connector, l.schema_, l.table, l.fully_qualified)
+            lineage = ex.source_lineage
+            return (lineage.connector, lineage.schema_, lineage.table, lineage.fully_qualified)
         if ex.source_lineage:
             for u in ex.source_lineage.upstream_expressions:
                 got = resolve(u, seen)
@@ -314,20 +313,20 @@ def _propagate_upstream_lineage(model: Model) -> None:
         for p in t.partitions:
             if not p.source_lineage:
                 continue
-            l = p.source_lineage
-            if l.table is not None:
+            lineage = p.source_lineage
+            if lineage.table is not None:
                 continue
-            for u in l.upstream_expressions:
+            for u in lineage.upstream_expressions:
                 got = resolve(u, set())
                 if got is None:
                     continue
                 connector, schema, table, full = got
-                l.connector = l.connector or connector
-                l.schema_ = schema
-                l.table = table
-                l.fully_qualified = full
-                if l.confidence != "high":
-                    l.confidence = "medium"
+                lineage.connector = lineage.connector or connector
+                lineage.schema_ = schema
+                lineage.table = table
+                lineage.fully_qualified = full
+                if lineage.confidence != "high":
+                    lineage.confidence = "medium"
                 break
 
 

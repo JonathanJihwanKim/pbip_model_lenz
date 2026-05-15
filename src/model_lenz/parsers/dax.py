@@ -20,8 +20,8 @@ The tokenizer ignores DAX comments (``// …`` and ``/* … */``) and DAX string
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from dataclasses import dataclass, field
-from typing import Iterator
 
 # DAX functions that accept a TABLE expression as one of their arguments.
 # When we see ``FUNC ( <table-ref>, ...)``, the first identifier is read as

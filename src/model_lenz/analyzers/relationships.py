@@ -22,8 +22,8 @@ Filter-propagation rules (Power BI semantics):
 from __future__ import annotations
 
 from collections import deque
+from collections.abc import Iterable
 from dataclasses import dataclass, field
-from typing import Iterable
 
 import networkx as nx
 
@@ -63,7 +63,7 @@ class RelationshipGraph:
     graph: nx.MultiGraph = field(default_factory=nx.MultiGraph)
 
     @classmethod
-    def from_relationships(cls, relationships: Iterable[Relationship]) -> "RelationshipGraph":
+    def from_relationships(cls, relationships: Iterable[Relationship]) -> RelationshipGraph:
         rg = cls()
         for r in relationships:
             many, one, m_col, o_col = _orient(r)
@@ -116,7 +116,7 @@ class RelationshipGraph:
                 node, path, depth = queue.popleft()
                 if depth >= max_depth:
                     continue
-                for _, neighbor, key, data in self.graph.edges(node, keys=True, data=True):
+                for _, _neighbor, _key, data in self.graph.edges(node, keys=True, data=True):
                     meta: _EdgeMeta = data["meta"]
                     if not meta.is_active and not _userel_enables(meta, userel_set):
                         continue
@@ -128,13 +128,12 @@ class RelationshipGraph:
                     visited.add(edge_key)
                     other = meta.other(node)
                     hop = _make_hop(meta, from_node=node, to_node=other)
-                    new_path = path + [hop]
+                    new_path = [*path, hop]
                     if other not in seeds:
                         results.setdefault(other, []).append(new_path)
                     queue.append((other, new_path, depth + 1))
 
         # Group paths into IndirectTable records.
-        seed_set = set(seeds)
         out: list[IndirectTable] = []
         for table, paths in results.items():
             unique_paths = _dedupe_paths(paths)

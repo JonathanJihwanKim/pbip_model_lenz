@@ -6,10 +6,10 @@ without binding a port.
 
 from __future__ import annotations
 
+import contextlib
 import socket
 import webbrowser
 from pathlib import Path
-from typing import Optional
 
 from fastapi import FastAPI
 from fastapi.responses import FileResponse, JSONResponse
@@ -87,10 +87,8 @@ def serve(
 
     if open_browser:
         url = f"http://{host}:{bound_port}/"
-        try:
+        with contextlib.suppress(Exception):  # nosec - best-effort browser open
             webbrowser.open(url)
-        except Exception:  # nosec - best-effort browser open
-            pass
 
     uvicorn.run(app, host=host, port=bound_port, log_level="info")
 

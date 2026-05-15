@@ -14,7 +14,6 @@ from __future__ import annotations
 import json
 import sys
 from pathlib import Path
-from typing import Optional
 
 import typer
 
@@ -64,7 +63,7 @@ def _print_summary(pbip_path: Path) -> None:
 def inspect(
     pbip_path: Path = typer.Argument(..., exists=True, help=PBIP_PATH_HELP),
     indent: int = typer.Option(2, "--indent", "-i", help="JSON indent (0 for compact)."),
-    output: Optional[Path] = typer.Option(None, "--output", "-o", help="Write JSON to this file instead of stdout."),
+    output: Path | None = typer.Option(None, "--output", "-o", help="Write JSON to this file instead of stdout."),
 ) -> None:
     """Parse a PBIP and print the parsed model as JSON."""
     model = parse_pbip(pbip_path)

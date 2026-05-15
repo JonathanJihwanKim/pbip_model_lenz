@@ -27,7 +27,6 @@ Design choices:
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Optional
 
 BLOCK_KEYWORDS: frozenset[str] = frozenset(
     {
@@ -74,12 +73,12 @@ FENCE = "```"
 class TmdlBlock:
     keyword: str
     name: str = ""
-    inline_value: Optional[str] = None
+    inline_value: str | None = None
     expression: str = ""
     properties: dict[str, str] = field(default_factory=dict)
     flags: set[str] = field(default_factory=set)
     annotations: dict[str, str] = field(default_factory=dict)
-    children: list["TmdlBlock"] = field(default_factory=list)
+    children: list[TmdlBlock] = field(default_factory=list)
     raw_properties: dict[str, str] = field(default_factory=dict)
 
 
@@ -150,7 +149,7 @@ class _Parser:
         while not self._at_end() and self.lines[self.i].strip() == "":
             self.i += 1
 
-    def _peek_indent(self) -> Optional[tuple[int, str]]:
+    def _peek_indent(self) -> tuple[int, str] | None:
         self._skip_blank()
         if self._at_end():
             return None
@@ -275,7 +274,7 @@ class _Parser:
         # `key: value`
         colon = _find_unquoted(content, ":")
         eq = _find_unquoted(content, "=")
-        if 0 <= colon and (eq < 0 or colon < eq):
+        if colon >= 0 and (eq < 0 or colon < eq):
             key = content[:colon].strip()
             value = content[colon + 1 :].strip()
             block.properties[key] = value

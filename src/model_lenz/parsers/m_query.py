@@ -341,10 +341,12 @@ def _extract_bigquery_nav(src: str) -> tuple[str | None, str | None, str | None]
     steps: list[tuple[str, str | None]] = []
     for m in _BIGQUERY_NAV_RE.finditer(src):
         raw_name = m.group("name").strip()
-        if (raw_name.startswith('"') and raw_name.endswith('"')):
-            name = raw_name[1:-1]
-        else:
-            name = raw_name  # expression / parameter — keep verbatim
+        # Strip surrounding quotes when present; otherwise keep verbatim (expression / parameter).
+        name = (
+            raw_name[1:-1]
+            if raw_name.startswith('"') and raw_name.endswith('"')
+            else raw_name
+        )
         kind = m.group("kind")
         steps.append((name, kind))
     if not steps:
@@ -397,7 +399,7 @@ def extract_lineage(
     expression_names = expression_names or set()
     cleaned = _strip_m_comments(expression)
 
-    let_body, in_step = _split_let_in(cleaned)
+    let_body, _in_step = _split_let_in(cleaned)
     steps = _split_steps(let_body) if let_body else []
     step_names = [name for name, _ in steps]
 
