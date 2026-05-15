@@ -31,6 +31,12 @@ jobs:
       - name: Install uv
         uses: astral-sh/setup-uv@v3
 
+      - name: Stage placeholder frontend_dist (tests don't need a real bundle)
+        shell: bash
+        run: |
+          mkdir -p src/model_lenz/frontend_dist
+          echo "<!-- CI placeholder; the real bundle is built by the frontend job and shipped with release wheels. -->" > src/model_lenz/frontend_dist/index.html
+
       - name: Install package and dev deps
         run: |
           uv venv --python ${{ matrix.python-version }}
