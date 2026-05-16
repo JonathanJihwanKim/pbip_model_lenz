@@ -62,6 +62,12 @@ For every measure (and for User Defined Functions, calculated columns, and calcu
 
 Same graph for both sides. When the Power BI developer and the data engineer talk about a measure in a PR or a Slack thread, they're looking at the same picture and reading the same labels.
 
+### Compare two PBIPs
+
+`model-lenz diff <base_pbip> <head_pbip>` opens a side-by-side comparison of two model snapshots. Color-coded **added** / **modified** / **removed** across every measure, table, and relationship, with the full BASE vs HEAD DAX shown for every modified measure. If either folder is inside a Git working tree, branch names auto-fill the BASE / HEAD labels — a small gold ★ pin marks the side that's on the repo's default branch (`main` or `master`). A Swap button flips BASE ↔ HEAD if you ran the CLI in the wrong order.
+
+A typical workflow: a teammate sends a PBIP folder for review. Run `model-lenz diff your_main_copy their_feature_copy`, and a browser opens to a structured diff you can read top-to-bottom before merging.
+
 ---
 
 ## Install
@@ -197,6 +203,7 @@ Usage: model-lenz [OPTIONS] COMMAND [ARGS]...
 
 Commands:
   demo      Serve the bundled tiny demo PBIP. No path or clone needed.
+  diff      Diff two PBIP folders and open a side-by-side comparison.
   inspect   Parse a PBIP and print the parsed model as JSON.
   serve     Start the local web server and open the model in a browser.
   summary   Print a one-screen human summary of the parsed model.
@@ -205,6 +212,7 @@ Commands:
 
 - `model-lenz demo`. The fastest way to see what the tool does. No path, no clone. Uses a bundled 5-table model.
 - `model-lenz serve <pbip>`. The main experience on your own model. Local web app plus interactive graph.
+- `model-lenz diff <base_pbip> <head_pbip>`. Side-by-side comparison of two model snapshots. Auto-detects Git branch names for the BASE / HEAD pills when either folder is inside a working tree; override with `--name-base` / `--name-head`.
 - `model-lenz summary <pbip>`. Counts, classification breakdown, lineage confidence. Useful for CI.
 - `model-lenz inspect <pbip> -o model.json`. Full parsed model as JSON. Plug it into other tools.
 
@@ -217,8 +225,11 @@ Commands:
 | **PBIP format** | TMDL semantic model only (no legacy `.pbix` in v1). Reads `definition/tables/*.tmdl`, `definition/relationships.tmdl`, `definition/expressions.tmdl`, `definition/functions/*.tmdl`. |
 | **DAX coverage** | Measures, User Defined Functions (preview syntax), calculated columns, calculation groups, `USERELATIONSHIP` hints, table-arg DAX functions (FILTER, ALL, CALCULATETABLE, …). |
 | **Power Query** | Per-partition lineage. Connectors: `GoogleBigQuery`, `Sql.Database`, `Snowflake`, `AzureStorage`, `Csv.Document`, `Excel.Workbook`, `Web.Contents`, `SharePoint`, `OData`, `Json.Document`. Resolves cross-query references to surface the deepest known source. |
+| **Dual-name graph** | Every table node carries both its semantic-model name and its source identifier (BigQuery FQN, SQL `[schema].[table]`, Snowflake `DB.SCHEMA.TABLE`, file path) with a connector glyph. No mode toggle — both audiences read the same screenshot. |
 | **Relationships** | Active and inactive, all four cardinalities, single and bidirectional crossfilter. Walker honors filter-propagation direction and re-enables inactive relationships when a measure declares `USERELATIONSHIP(…)`. |
 | **Classification** | Heuristic fact / dim / parameter / time / calc-group / other, configurable via a `model_lenz.toml` in the PBIP root. |
+| **PBIP diff** | `model-lenz diff <base_pbip> <head_pbip>` produces a side-by-side comparison. Color-coded added / modified / removed for measures, tables, and relationships. Side-by-side DAX for modified measures. Git branch names auto-fill the BASE / HEAD labels. |
+| **Theme** | Dark (default) and light themes, both with the Power BI gold gradient as the brand accent. Theme switch lives in a labeled `Dark / Light` control next to `Hops` in the header. |
 | **Distribution** | Single Python wheel. Install via `uv tool install model-lenz` (recommended) or `pipx install model-lenz`. Frontend bundle is included; no Node required at install time. |
 | **Read-only** | Model Lenz never modifies your PBIP files. |
 
@@ -228,20 +239,14 @@ Commands:
 
 Model Lenz exists because Power BI developers and data engineers need to look at the same model and have the same conversation about it. Everything on this roadmap serves that handshake. It surfaces model changes early, in a vocabulary both sides recognize, on a surface both sides can review.
 
-- **v0.2. One screenshot, both audiences. (shipped in 0.3.0)**
-  - **Dual-name graph.** Every table node carries both its semantic-model name (the one a Power BI developer types in DAX) and the source identifier a data engineer recognizes — BigQuery FQN, SQL `[schema].[table]`, Snowflake `DB.SCHEMA.TABLE`, file path — with a connector glyph on the source line. No mode toggle: both labels render simultaneously so a screenshot in a PR or Slack thread tells the full story.
-  - **Power BI brand color.** The UI chrome adopts the Power BI gold gradient. A clearly labeled `Dark / Light` theme control sits next to `Hops` in the header.
-  - **Confidence badges in the detail panel.** Source identifiers carry a `high` / `medium` / `low` badge so readers know which entries were extracted cleanly from native SQL vs. inferred from upstream M references.
-  - **Calc-group glyph in nodes.** Calculation-group tables now carry a small `fx` glyph and the literal text `calculation group` so they don't get confused with regular fact / dim tables.
-
-- **v0.3. Change-impact conversations.**
-  - **`model-lenz diff <base_pbip> <head_pbip>`. (shipped in 0.3.0)** Point Model Lenz at two PBIP folders and see which measures' direct *and indirect* table-dependency sets changed. A data engineer can preview which BI measures break before renaming a source column. A BI developer can show a data engineer exactly which warehouse tables a new measure now reaches. Side-by-side DAX, color-coded added / removed / modified across measures, tables, and relationships. If either folder is inside a Git working tree, branch names auto-fill the BASE / HEAD labels; a Swap button lets you flip them if you ran the CLI in the wrong order.
+- **v0.3.x. Diff polish.**
   - **Diff on the graph canvas.** v0.3.0 ships the diff as a structured list. The next polish iteration overlays diff status (green / amber / red borders) on the existing bus-layout graph so the same canvas does double duty.
   - **Per-measure / per-table Markdown handoff cards.** One-pager exports a BI developer can paste into Jira, Slack, or a PR description when asking the data engineer about a specific column or relationship.
-  - **Shareable URLs.** Capture the selected measure and walk depth in the URL. Paste into a PR or Slack thread and both sides land on the exact same view.
-  - **Export to Mermaid / SVG.** Embed sub-graphs in pull requests and design docs.
+  - **Shareable URLs.** Capture the selected measure, walk depth, and (in diff view) the BASE / HEAD paths in the URL. Paste into a PR or Slack thread and both sides land on the exact same view.
+  - **Export to Mermaid / SVG.** Embed sub-graphs and diffs in pull requests and design docs.
+  - **Git-ref diff mode.** `model-lenz diff --git origin/main HEAD` for users who want to diff two refs in the same repo without materializing two folders.
 
-> **Where your sponsorship goes.** The diff view, the handoff cards, the v0.4 CI gate, and the next batch of source connectors (Snowflake native SQL, Databricks, Synapse Serverless) are the next things on the build list. [GitHub Sponsors](https://github.com/sponsors/JonathanJihwanKim) or [Buy Me a Coffee](https://www.buymeacoffee.com/jihwankim) accelerates them.
+> **Where your sponsorship goes.** The graph-canvas diff overlay, the handoff cards, the v0.4 CI gate, and the next batch of source connectors (Snowflake native SQL, Databricks, Synapse Serverless) are the next things on the build list. [GitHub Sponsors](https://github.com/sponsors/JonathanJihwanKim) or [Buy Me a Coffee](https://www.buymeacoffee.com/jihwankim) accelerates them.
 
 - **v0.4. Guardrails before the merge.**
   - **`model-lenz check` for CI.** Extends `summary` into a policy-gate command that can fail a build on orphan measures, fact tables sourced from more than one warehouse, ambiguous propagation paths through multiple facts, or measures whose indirect-table set grew by more than N tables in a single commit. Catches anti-patterns at PR time, before they become a review thread.
@@ -330,9 +335,9 @@ Model Lenz is free, ad-free, and never phones home. Every parser, walker, and gr
 
 **Where sponsorship goes:**
 
-- **v0.3 PBIP diff view.** Side-by-side measure DAX, color-coded added / removed / modified across measures, tables, and relationships. The biggest single feature on the build list.
-- **v0.3 Markdown handoff cards.** Per-measure and per-table one-pagers a BI developer can paste into a PR description, Jira ticket, or Slack thread when asking a data engineer about a specific column.
-- **v0.4 `model-lenz check` CI gate.** Fail a build on orphan measures, fact tables sourced from more than one warehouse, ambiguous propagation paths, or indirect-table-set growth above a threshold.
+- **Graph-canvas diff overlay (v0.3.x).** v0.3.0 ships the diff as a structured list; the next iteration paints diff status onto the existing bus-layout graph so the same canvas does double duty.
+- **Markdown handoff cards (v0.3.x).** Per-measure and per-table one-pagers a BI developer can paste into a PR description, Jira ticket, or Slack thread when asking a data engineer about a specific column.
+- **`model-lenz check` CI gate (v0.4).** Fail a build on orphan measures, fact tables sourced from more than one warehouse, ambiguous propagation paths, or indirect-table-set growth above a threshold.
 - **New source connectors.** Snowflake native SQL, Databricks, Synapse Serverless. Each opens a class of warehouses Model Lenz currently labels with low confidence.
 - **Documentation, issue triage, maintenance.** The unglamorous work that keeps the tool usable.
 
