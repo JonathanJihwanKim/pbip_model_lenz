@@ -1,6 +1,6 @@
 """Tests for `analyzers/diff.py`.
 
-Covers each status × entity-kind combination. Helpers build minimal Model
+Covers each status x entity-kind combination. Helpers build minimal Model
 fixtures focused on the one thing each test is asserting.
 """
 
