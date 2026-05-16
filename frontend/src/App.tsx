@@ -6,6 +6,7 @@ import { Legend } from "./components/Legend";
 import { PinnedBar } from "./components/PinnedBar";
 import { Toaster } from "./components/Toaster";
 import { ForceGraph } from "./graph/ForceGraph";
+import { DiffView } from "./routes/Diff";
 import { useStore } from "./store";
 
 interface HealthInfo {
@@ -14,15 +15,27 @@ interface HealthInfo {
 }
 
 export function App() {
-  const bootstrap = useStore((s) => s.bootstrap);
-  const loading = useStore((s) => s.loading);
-  const error = useStore((s) => s.error);
   const theme = useStore((s) => s.theme);
-  const [health, setHealth] = useState<HealthInfo | null>(null);
 
   useEffect(() => {
     document.documentElement.setAttribute("data-theme", theme);
   }, [theme]);
+
+  // Tiny client-side router: only two routes today — "/" (model view) and
+  // "/diff" (v0.3 diff view). No history navigation; the CLI determines which
+  // view is launched. Avoids pulling react-router-dom in for two paths.
+  const path = typeof window !== "undefined" ? window.location.pathname : "/";
+  if (path.startsWith("/diff")) {
+    return <DiffView />;
+  }
+  return <ModelView />;
+}
+
+function ModelView() {
+  const bootstrap = useStore((s) => s.bootstrap);
+  const loading = useStore((s) => s.loading);
+  const error = useStore((s) => s.error);
+  const [health, setHealth] = useState<HealthInfo | null>(null);
 
   useEffect(() => {
     const saved = localStorage.getItem("model-lenz-right-panel-width");

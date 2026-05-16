@@ -8,7 +8,6 @@ import type {
 } from "../api/types";
 import { api } from "../api/client";
 
-export type ViewMode = "semantic" | "source";
 export type Theme = "light" | "dark";
 
 export interface Selection {
@@ -27,7 +26,6 @@ interface State {
   error: string | null;
 
   // UI state.
-  view: ViewMode;
   theme: Theme;
   depth: number;
   search: string;
@@ -46,7 +44,6 @@ interface State {
 
   // Actions.
   bootstrap: () => Promise<void>;
-  setView: (v: ViewMode) => void;
   toggleTheme: () => void;
   setDepth: (d: number) => Promise<void>;
   setSearch: (s: string) => void;
@@ -119,7 +116,6 @@ export const useStore = create<State>((set, get) => ({
   loading: false,
   error: null,
 
-  view: "semantic",
   theme: (localStorage.getItem("model-lenz-theme") as Theme) || "dark",
   depth: 2,
   search: "",
@@ -150,7 +146,6 @@ export const useStore = create<State>((set, get) => ({
     }
   },
 
-  setView: (v) => set({ view: v }),
   toggleTheme: () => {
     const next: Theme = get().theme === "dark" ? "light" : "dark";
     localStorage.setItem("model-lenz-theme", next);

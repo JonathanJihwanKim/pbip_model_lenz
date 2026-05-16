@@ -22,12 +22,32 @@
   --text-1: #b8becd;
   --text-2: #7e8497;
   --border: #2a3251;
-  --accent: #7c5cff;
+
+  /* Power BI brand gold — main brand color in chrome */
+  --brand-gold-1: #f2c811;
+  --brand-gold-2: #e1a93a;
+  --brand-gold-3: #c99021;
+  --brand-gradient: linear-gradient(135deg, var(--brand-gold-1) 0%, var(--brand-gold-2) 50%, var(--brand-gold-3) 100%);
+
+  --accent: var(--brand-gold-1);
+  --accent-strong: var(--brand-gold-2);
+  --on-accent: #1a1100;
   --accent-2: #3fb68b;
+
+  /* graph-element colors, decoupled from brand */
+  --measure-fill: #7c5cff;
+  --measure-stroke: #3d2fb8;
+
   --warn: #f59e0b;
   --error: #ef4444;
   --edge-direct: #e2e8f0;
   --edge-rel: #6b7280;
+
+  /* diff (v0.3) — separate from brand gold; ramps map directly to GitHub-style
+     diff intuition (green=added, red=removed, amber=modified). */
+  --diff-added: #3fb68b;
+  --diff-removed: #ef4444;
+  --diff-modified: #f59e0b;
 }
 
 [data-theme="light"] {
@@ -39,12 +59,28 @@
   --text-1: #344155;
   --text-2: #64748b;
   --border: #d8def0;
-  --accent: #5b3edb;
+
+  --brand-gold-1: #f2c811;
+  --brand-gold-2: #e1a93a;
+  --brand-gold-3: #c99021;
+  --brand-gradient: linear-gradient(135deg, var(--brand-gold-1) 0%, var(--brand-gold-2) 50%, var(--brand-gold-3) 100%);
+
+  --accent: var(--brand-gold-3);
+  --accent-strong: #a8761b;
+  --on-accent: #1a1100;
   --accent-2: #1f8e6c;
+
+  --measure-fill: #7c5cff;
+  --measure-stroke: #3d2fb8;
+
   --warn: #c97a06;
   --error: #b91c1c;
   --edge-direct: #1f2937;
   --edge-rel: #6b7280;
+
+  --diff-added: #1f8e6c;
+  --diff-removed: #b91c1c;
+  --diff-modified: #c97a06;
 }
 
 /* ----------------------------- base ------------------------------------- */
@@ -213,8 +249,8 @@ pre {
 }
 .seg-toggle button.active {
   background: var(--accent);
-  color: white;
-  font-weight: 500;
+  color: var(--on-accent);
+  font-weight: 600;
 }
 .seg-toggle button:not(.active):hover {
   color: var(--text-0);
@@ -328,7 +364,7 @@ pre {
 }
 .chip.solid {
   background: var(--accent);
-  color: white;
+  color: var(--on-accent);
   border-color: transparent;
   display: inline-flex;
   align-items: center;
@@ -340,7 +376,7 @@ pre {
   line-height: 1;
   margin-left: 2px;
   cursor: pointer;
-  color: white;
+  color: var(--on-accent);
   opacity: 0.7;
 }
 .chip-x:hover {
@@ -660,9 +696,9 @@ pre {
   color: var(--accent-2);
 }
 .badge.via {
-  border-color: #7C5CFF55;
-  color: #B49BFF;
-  background: rgba(124, 92, 255, 0.06);
+  border-color: color-mix(in srgb, var(--measure-fill) 33%, transparent);
+  color: color-mix(in srgb, var(--measure-fill) 70%, var(--text-0));
+  background: color-mix(in srgb, var(--measure-fill) 6%, transparent);
 }
 
 /* referenced-measure inline preview */
@@ -827,8 +863,8 @@ pre {
   stroke-dasharray: 3 2;
 }
 .bus-graph .measure-rect {
-  fill: rgba(124, 92, 255, 0.22);
-  stroke: var(--accent);
+  fill: color-mix(in srgb, var(--measure-fill) 22%, transparent);
+  stroke: var(--measure-stroke);
   stroke-width: 1.5;
 }
 .bus-graph .card-label {
@@ -836,6 +872,31 @@ pre {
   font-size: 11px;
   font-family: var(--font-ui);
   font-weight: 500;
+}
+.bus-graph .card-source {
+  fill: var(--text-2);
+  font-size: 9px;
+  font-family: var(--font-mono);
+  font-weight: 400;
+}
+.bus-graph .card-source-glyph {
+  color: var(--text-2);
+  opacity: 0.85;
+}
+.bus-graph .node-fact .card-source-glyph,
+.bus-graph .node-fact .card-source {
+  fill: rgba(31, 111, 235, 0.95);
+  color: rgba(31, 111, 235, 0.95);
+}
+.bus-graph .node-dim .card-source-glyph,
+.bus-graph .node-dim .card-source {
+  fill: rgba(63, 182, 139, 0.95);
+  color: rgba(63, 182, 139, 0.95);
+}
+.bus-graph .node-time .card-source-glyph,
+.bus-graph .node-time .card-source {
+  fill: rgba(225, 169, 56, 0.95);
+  color: rgba(225, 169, 56, 0.95);
 }
 .bus-graph .measure-label {
   fill: var(--text-0);
@@ -1047,4 +1108,401 @@ pre {
     opacity: 1;
     transform: translateY(0);
   }
+}
+
+/* ----------------------------- dual-name UI ----------------------------- */
+/* Inline source identifier used in detail-panel direct/indirect lists and
+   anywhere else we want to show the data-engineer view alongside the
+   semantic name. */
+.source-id {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 2px;
+  font-size: 11px;
+  color: var(--text-2);
+  max-width: 100%;
+}
+.source-id-glyph {
+  flex-shrink: 0;
+  color: var(--text-1);
+}
+.source-id-text {
+  font-size: 11px;
+  color: var(--text-1);
+  word-break: break-all;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.dual-table-row {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+  flex: 1;
+}
+.dual-table-name {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.dual-table-name strong {
+  color: var(--text-0);
+  word-break: break-word;
+}
+
+/* Confidence badges already exist as .badge.conf-high — extend for the rest. */
+.badge.conf-medium {
+  border-color: var(--warn);
+  color: var(--warn);
+}
+.badge.conf-low {
+  border-color: var(--text-2);
+  color: var(--text-2);
+}
+
+/* PBI dev / data engineer section divider. Sits inside the detail panel
+   between groups of sections so both audiences see what's "theirs" without
+   needing a toggle. */
+.view-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 18px;
+  margin-bottom: -4px;
+  padding: 6px 0 4px;
+  border-top: 1px dashed var(--border);
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-2);
+}
+.view-banner:first-child {
+  margin-top: 6px;
+  border-top: none;
+}
+.view-banner-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  flex-shrink: 0;
+}
+.view-banner-pbi {
+  color: var(--accent-strong);
+}
+.view-banner-pbi .view-banner-dot {
+  background: var(--brand-gradient);
+}
+.view-banner-de {
+  color: var(--accent-2);
+}
+.view-banner-de .view-banner-dot {
+  background: var(--accent-2);
+}
+
+/* Tooltip — additional bits surfaced when source identifiers exist. */
+.tt-connector {
+  color: var(--accent-strong);
+  font-weight: 600;
+  text-transform: none;
+  font-size: 10px;
+  margin-right: 4px;
+}
+.tt-conf {
+  border: 1px solid currentColor;
+  border-radius: 3px;
+  padding: 0 4px;
+  font-size: 9px;
+  margin-left: 4px;
+  text-transform: uppercase;
+}
+.tt-conf-high {
+  color: var(--accent-2);
+}
+.tt-conf-medium {
+  color: var(--warn);
+}
+.tt-conf-low {
+  color: var(--text-2);
+}
+
+/* ----------------------------- diff view (v0.3) -------------------------- */
+.diff-app {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-width: 980px;
+}
+.diff-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px 28px 60px;
+}
+.diff-empty {
+  text-align: center;
+  margin-top: 80px;
+}
+.diff-empty h3 {
+  font-size: 18px;
+  margin-bottom: 6px;
+}
+
+/* BASE / HEAD pill row */
+.diff-header {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 16px 28px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-1);
+  flex-wrap: wrap;
+}
+.diff-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 14px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--bg-2);
+  font-size: 12px;
+  max-width: 320px;
+}
+.diff-pill-base {
+  border-color: var(--accent);
+}
+.diff-pill-head {
+  border-color: var(--accent-2);
+}
+.diff-pill-kind {
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: var(--text-2);
+  font-size: 10px;
+}
+.diff-pill-base .diff-pill-kind {
+  color: var(--accent-strong);
+}
+.diff-pill-head .diff-pill-kind {
+  color: var(--accent-2);
+}
+.diff-pill-label {
+  color: var(--text-0);
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.diff-pin {
+  font-size: 12px;
+  color: var(--brand-gold-1);
+  line-height: 1;
+}
+
+.diff-swap {
+  border: 1px solid var(--border);
+  background: var(--bg-1);
+  width: 32px;
+  height: 32px;
+  border-radius: 999px;
+  display: grid;
+  place-items: center;
+  font-size: 16px;
+  color: var(--text-1);
+}
+.diff-swap:hover {
+  border-color: var(--accent);
+  color: var(--text-0);
+}
+
+.diff-summary {
+  margin-left: auto;
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.diff-summary-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 9px;
+  border-radius: 4px;
+  font-size: 11px;
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  color: var(--text-1);
+}
+.diff-summary-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  flex-shrink: 0;
+}
+.diff-added .diff-summary-dot,
+.diff-status-heading.diff-added .diff-summary-dot {
+  background: var(--diff-added);
+}
+.diff-modified .diff-summary-dot,
+.diff-status-heading.diff-modified .diff-summary-dot {
+  background: var(--diff-modified);
+}
+.diff-removed .diff-summary-dot,
+.diff-status-heading.diff-removed .diff-summary-dot {
+  background: var(--diff-removed);
+}
+
+/* Sections + status groups */
+.diff-section {
+  margin-bottom: 28px;
+}
+.diff-section h2 {
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-0);
+  margin: 0 0 8px;
+}
+.diff-status-group {
+  margin: 12px 0 18px;
+}
+.diff-status-heading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  margin: 0 0 8px;
+}
+.diff-status-heading.diff-added {
+  color: var(--diff-added);
+}
+.diff-status-heading.diff-modified {
+  color: var(--diff-modified);
+}
+.diff-status-heading.diff-removed {
+  color: var(--diff-removed);
+}
+
+.diff-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.diff-row {
+  border: 1px solid var(--border);
+  border-left-width: 4px;
+  border-radius: var(--radius-sm);
+  padding: 10px 14px;
+  background: var(--bg-1);
+}
+.diff-row-added {
+  border-left-color: var(--diff-added);
+}
+.diff-row-modified {
+  border-left-color: var(--diff-modified);
+}
+.diff-row-removed {
+  border-left-color: var(--diff-removed);
+}
+.diff-row-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+.diff-row-head strong {
+  color: var(--text-0);
+}
+.diff-row-detail {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 6px;
+  font-size: 12px;
+  margin-top: 4px;
+}
+.diff-tag-added {
+  color: var(--diff-added);
+  font-weight: 600;
+  font-size: 11px;
+}
+.diff-tag-removed {
+  color: var(--diff-removed);
+  font-weight: 600;
+  font-size: 11px;
+}
+
+/* Side-by-side DAX for modified measures */
+.diff-dax-pair {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-top: 8px;
+}
+.diff-dax-side {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.diff-dax-label {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  margin-bottom: 4px;
+  color: var(--text-2);
+}
+.diff-dax-label-base {
+  color: var(--accent-strong);
+}
+.diff-dax-label-head {
+  color: var(--accent-2);
+}
+.dax-base,
+.dax-head,
+.dax-added,
+.dax-removed {
+  font-family: var(--font-mono);
+  background: var(--bg-2);
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 11.5px;
+  max-height: 220px;
+  overflow-y: auto;
+}
+.dax-base {
+  border-left: 3px solid var(--accent);
+}
+.dax-head {
+  border-left: 3px solid var(--accent-2);
+}
+.dax-added {
+  border-left: 3px solid var(--diff-added);
+}
+.dax-removed {
+  border-left: 3px solid var(--diff-removed);
+}
+
+.link-back {
+  color: var(--accent-strong);
+  text-decoration: none;
+  font-size: 12px;
+  padding: 4px 10px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+}
+.link-back:hover {
+  background: var(--bg-2);
+  color: var(--text-0);
 }

@@ -84,6 +84,19 @@ export interface IndirectTable {
   ambiguous: boolean;
   crosses_fact: boolean;
   paths: IndirectPath[];
+  source_label: string | null;
+  source_connector: string | null;
+  source_confidence: Confidence | null;
+}
+
+export interface GraphNode {
+  id: string;
+  kind: "measure" | "table" | "function";
+  label: string;
+  classification: Classification | null;
+  source_label: string | null;
+  source_connector: string | null;
+  source_confidence: Confidence | null;
 }
 
 export interface ColumnRef {
@@ -117,6 +130,7 @@ export interface MeasureGraph {
     lineageTag: string | null;
   };
   direct_tables: string[];
+  direct_table_meta: GraphNode[];
   direct_columns: ColumnRef[];
   referenced_measures: MeasureRef[];
   userel_hints: UserelHint[];
@@ -189,4 +203,75 @@ export interface SearchHit {
   name: string;
   table: string | null;
   score: number;
+}
+
+// --------------------------------------------------------------------------
+// Diff (v0.3)
+// --------------------------------------------------------------------------
+
+export type DiffStatus = "added" | "removed" | "modified";
+
+export interface MeasureDiff {
+  status: DiffStatus;
+  table: string;
+  name: string;
+  before: Measure | null;
+  head: Measure | null;
+  dax_changed: boolean;
+  refs_changed: boolean;
+  userel_changed: boolean;
+}
+
+export interface TableDiff {
+  status: DiffStatus;
+  name: string;
+  before: Table | null;
+  head: Table | null;
+  source_lineage_changed: boolean;
+  columns_added: string[];
+  columns_removed: string[];
+  classification_before: string | null;
+  classification_head: string | null;
+}
+
+export interface RelationshipDiff {
+  status: DiffStatus;
+  key: string;
+  before: RelationshipItem | null;
+  head: RelationshipItem | null;
+  is_active_changed: boolean;
+  cardinality_changed: boolean;
+  crossfilter_changed: boolean;
+}
+
+export interface DiffCounts {
+  measures_added: number;
+  measures_removed: number;
+  measures_modified: number;
+  tables_added: number;
+  tables_removed: number;
+  tables_modified: number;
+  relationships_added: number;
+  relationships_removed: number;
+  relationships_modified: number;
+}
+
+export interface DiffPayload {
+  base_label: string;
+  head_label: string;
+  base_path: string;
+  head_path: string;
+  base_is_default_branch: boolean;
+  counts: DiffCounts;
+  measures: MeasureDiff[];
+  tables: TableDiff[];
+  relationships: RelationshipDiff[];
+}
+
+export interface DiffContext {
+  base_label: string;
+  head_label: string;
+  base_path: string;
+  head_path: string;
+  base_is_default_branch: boolean;
 }

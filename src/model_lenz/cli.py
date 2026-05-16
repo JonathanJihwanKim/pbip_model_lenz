@@ -107,6 +107,66 @@ def serve(
 
 
 @app.command()
+def diff(
+    base: Path = typer.Argument(..., exists=True, help="BASE PBIP folder (the 'main' side)."),
+    head: Path = typer.Argument(..., exists=True, help="HEAD PBIP folder (the 'feature' side proposing changes)."),
+    name_base: str | None = typer.Option(
+        None,
+        "--name-base",
+        help="Override the BASE label shown in the diff UI. Defaults to the Git branch (if `base` is in a working tree) or the folder name.",
+    ),
+    name_head: str | None = typer.Option(
+        None,
+        "--name-head",
+        help="Override the HEAD label shown in the diff UI. Defaults to the Git branch (if `head` is in a working tree) or the folder name.",
+    ),
+    host: str = typer.Option("127.0.0.1", "--host", "-H", help="Bind host."),
+    port: int = typer.Option(0, "--port", "-p", help="Bind port (0 = auto)."),
+    no_browser: bool = typer.Option(False, "--no-browser", help="Don't open a browser."),
+) -> None:
+    """Diff two PBIP folders and open a side-by-side comparison in the browser.
+
+    BASE is the 'main' side; HEAD is the side proposing changes (typically a
+    feature branch wanting to merge back). Labels auto-fill from Git branch
+    names when either folder is inside a working tree; pass `--name-base` /
+    `--name-head` to override.
+    """
+    from model_lenz.git_meta import detect_branch_label, detect_is_default_branch
+    from model_lenz.server import serve as _serve
+
+    base_resolved = base.resolve()
+    head_resolved = head.resolve()
+
+    base_label = name_base or detect_branch_label(base_resolved) or base_resolved.name
+    head_label = name_head or detect_branch_label(head_resolved) or head_resolved.name
+    base_is_default = detect_is_default_branch(base_resolved)
+
+    diff_context = {
+        "base_path": str(base_resolved),
+        "head_path": str(head_resolved),
+        "base_label": base_label,
+        "head_label": head_label,
+        "base_is_default_branch": base_is_default,
+    }
+
+    typer.echo(f"BASE  ({base_label}): {base_resolved}")
+    typer.echo(f"HEAD  ({head_label}): {head_resolved}")
+
+    # Pass `base_resolved` as the primary pbip_path so single-model API
+    # endpoints (/api/measures, /api/tables) still work on the BASE side if
+    # the user navigates to "/" from the diff view. The diff endpoints use
+    # both paths through diff_context.
+    _serve(
+        base_resolved,
+        host=host,
+        port=port,
+        open_browser=not no_browser,
+        diff_context=diff_context,
+        landing_path="/diff",
+    )
+
+
+@app.command()
 def demo(
     host: str = typer.Option("127.0.0.1", "--host", "-H", help="Bind host."),
     port: int = typer.Option(0, "--port", "-p", help="Bind port (0 = auto)."),

@@ -2,8 +2,6 @@ import { useEffect, useRef, useState } from "react";
 import { useStore } from "../store";
 
 export function Header({ pbipPath }: { pbipPath: string }) {
-  const view = useStore((s) => s.view);
-  const setView = useStore((s) => s.setView);
   const depth = useStore((s) => s.depth);
   const setDepth = useStore((s) => s.setDepth);
   const search = useStore((s) => s.search);
@@ -37,21 +35,13 @@ export function Header({ pbipPath }: { pbipPath: string }) {
       </div>
 
       <div className="header-controls">
-        <ControlGroup label="Labels">
-          <ViewToggle view={view} onChange={setView} />
-        </ControlGroup>
         <ControlGroup label="Hops">
           <DepthSelect depth={depth} onChange={setDepth} />
           <DepthHelp />
         </ControlGroup>
-        <button
-          className="icon-btn"
-          aria-label="Toggle theme"
-          onClick={toggleTheme}
-          title={theme === "dark" ? "Switch to light theme" : "Switch to dark theme"}
-        >
-          {theme === "dark" ? "☀" : "☾"}
-        </button>
+        <ControlGroup label="Theme">
+          <ThemeToggle theme={theme} onToggle={toggleTheme} />
+        </ControlGroup>
       </div>
     </header>
   );
@@ -66,37 +56,30 @@ function ControlGroup({ label, children }: { label: string; children: React.Reac
   );
 }
 
-function ViewToggle({
-  view,
-  onChange,
+function ThemeToggle({
+  theme,
+  onToggle,
 }: {
-  view: "semantic" | "source";
-  onChange: (v: "semantic" | "source") => void;
+  theme: "dark" | "light";
+  onToggle: () => void;
 }) {
   return (
-    <div
-      className="seg-toggle"
-      role="tablist"
-      aria-label="Label view"
-      title="Switch table labels between PBIP names (Semantic) and source-system names from Power Query (Source)"
-    >
+    <div className="seg-toggle" role="group" aria-label="Theme">
       <button
-        role="tab"
-        aria-selected={view === "semantic"}
-        className={view === "semantic" ? "active" : ""}
-        onClick={() => onChange("semantic")}
-        title="Semantic — table names as they appear in Power BI Desktop / TMDL"
+        aria-pressed={theme === "dark"}
+        className={theme === "dark" ? "active" : ""}
+        onClick={() => theme !== "dark" && onToggle()}
+        title="Dark theme"
       >
-        Semantic
+        Dark
       </button>
       <button
-        role="tab"
-        aria-selected={view === "source"}
-        className={view === "source" ? "active" : ""}
-        onClick={() => onChange("source")}
-        title="Source — source-system table names extracted from the Power Query (M) code"
+        aria-pressed={theme === "light"}
+        className={theme === "light" ? "active" : ""}
+        onClick={() => theme !== "light" && onToggle()}
+        title="Light theme"
       >
-        Source
+        Light
       </button>
     </div>
   );

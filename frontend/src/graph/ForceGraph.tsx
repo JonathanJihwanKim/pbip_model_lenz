@@ -25,7 +25,7 @@ import { zoom as d3zoom, zoomIdentity, type ZoomBehavior } from "d3-zoom";
 import "d3-transition";
 
 import { useStore } from "../store";
-import type { Cardinality, RelationshipItem } from "../api/types";
+import type { Cardinality, Confidence, RelationshipItem } from "../api/types";
 import {
   cardinalityGlyphPosition,
   computeBusLayout,
@@ -38,12 +38,16 @@ import {
   type Orientation,
   type PositionableNode,
 } from "./busLayout";
+import { ConnectorGlyphSprite, connectorToGlyphId } from "./connectorGlyphs";
 
 const CARD_W = DEFAULT_LAYOUT.cardWidth;
 const CARD_H = DEFAULT_LAYOUT.cardHeight;
+const SOURCE_LABEL_MAX = 22;
 
 interface NodeView extends PositionableNode {
   sourceLabel: string | null;
+  sourceConnector: string | null;
+  sourceConfidence: Confidence | null;
   position: NodePosition;
   visible: boolean;
 }
@@ -63,7 +67,6 @@ const SYNTHETIC_MEASURE_ID = "__synthetic_measure__";
 export function ForceGraph() {
   const tables = useStore((s) => s.tables);
   const relationships = useStore((s) => s.relationships);
-  const view = useStore((s) => s.view);
   const classFilter = useStore((s) => s.classFilter);
   const selection = useStore((s) => s.selection);
   const measureGraph = useStore((s) => s.measureGraph);
@@ -158,6 +161,8 @@ export function ForceGraph() {
         label: t.name,
         classification: t.classification,
         sourceLabel: t.source_table,
+        sourceConnector: t.source_connector,
+        sourceConfidence: t.source_confidence,
         position: pos,
         visible: pos.zone !== "hidden",
       };
@@ -321,11 +326,12 @@ export function ForceGraph() {
   function showTooltip(e: React.MouseEvent, n: NodeView) {
     const el = tooltipRef.current;
     if (!el) return;
-    const semantic = n.label;
-    const source = n.sourceLabel;
+    const sourceLine = n.sourceLabel
+      ? `<div class="tt-source">${n.sourceConnector ? `<span class="tt-connector">${escape(n.sourceConnector)}</span> ` : ""}${escape(n.sourceLabel)}${n.sourceConfidence ? ` <span class="tt-conf tt-conf-${n.sourceConfidence}">${n.sourceConfidence}</span>` : ""}</div>`
+      : "";
     el.innerHTML = `
-      <div class="tt-name">${escape(semantic)}</div>
-      ${source ? `<div class="tt-source">${escape(source)}</div>` : ""}
+      <div class="tt-name">${escape(n.label)}</div>
+      ${sourceLine}
       <div class="tt-class">${n.classification}</div>
     `;
     el.style.opacity = "1";
@@ -381,6 +387,7 @@ export function ForceGraph() {
         aria-label="Model relationship graph (bus layout)"
       >
         <defs>
+          <ConnectorGlyphSprite />
           <marker
             id="arrow-fact"
             viewBox="0 -5 10 10"
@@ -506,15 +513,7 @@ export function ForceGraph() {
                   rx={4}
                   className="card-rect"
                 />
-                <text
-                  className="card-label"
-                  x={0}
-                  y={4}
-                  textAnchor="middle"
-                  pointerEvents="none"
-                >
-                  {labelFor(n, view)}
-                </text>
+                <NodeLabels node={n} />
               </g>
             ))}
           </g>
@@ -536,11 +535,21 @@ export function ForceGraph() {
               <text
                 className="card-label measure-label"
                 x={0}
-                y={4}
+                y={-2}
                 textAnchor="middle"
                 pointerEvents="none"
               >
                 {spotlight.measureNode.label}
+              </text>
+              <text
+                className="card-source"
+                x={0}
+                y={11}
+                textAnchor="middle"
+                pointerEvents="none"
+                opacity={0.75}
+              >
+                DAX measure
               </text>
               <text
                 x={0}
@@ -652,9 +661,96 @@ function ZoneLabel({
 // Helpers
 // --------------------------------------------------------------------------- //
 
-function labelFor(n: NodeView, view: "semantic" | "source"): string {
-  if (view === "source" && n.sourceLabel) return n.sourceLabel;
-  return n.label;
+/** Two-line label inside a table card: semantic name on top, source identifier
+ *  with connector glyph below. Glyph + text are centered as a unit; long source
+ *  paths truncate via middle-ellipsis with the full string accessible through
+ *  the floating tooltip (the parent <g> handles mouse events). */
+function NodeLabels({ node }: { node: NodeView }) {
+  const truncated = node.sourceLabel
+    ? middleEllipsis(node.sourceLabel, SOURCE_LABEL_MAX)
+    : null;
+  const glyphId = node.classification === "calculation_group"
+    ? "glyph-calc-group"
+    : node.sourceLabel
+      ? connectorToGlyphId(node.sourceConnector)
+      : null;
+
+  // Approximate centering of (glyph + text). Average glyph width 11px + 3px
+  // gap + text width. Text width ~5.2px per char at 10px font.
+  const textWidth = truncated ? truncated.length * 5.2 : 0;
+  const groupWidth = glyphId ? 11 + 3 + textWidth : textWidth;
+  const glyphX = -groupWidth / 2;
+  const textStartX = glyphX + (glyphId ? 11 + 3 : 0);
+
+  return (
+    <>
+      <text
+        className="card-label"
+        x={0}
+        y={-2}
+        textAnchor="middle"
+        pointerEvents="none"
+      >
+        {node.label}
+      </text>
+      {truncated && (
+        <>
+          {glyphId && (
+            <use
+              href={`#${glyphId}`}
+              x={glyphX}
+              y={3}
+              width={10}
+              height={10}
+              className="card-source-glyph"
+              pointerEvents="none"
+            />
+          )}
+          <text
+            className="card-source"
+            x={textStartX}
+            y={11}
+            textAnchor="start"
+            pointerEvents="none"
+          >
+            {truncated}
+          </text>
+        </>
+      )}
+      {node.classification === "calculation_group" && !truncated && (
+        <>
+          <use
+            href="#glyph-calc-group"
+            x={-groupWidth / 2 - 6}
+            y={3}
+            width={10}
+            height={10}
+            className="card-source-glyph"
+            pointerEvents="none"
+          />
+          <text
+            className="card-source"
+            x={4}
+            y={11}
+            textAnchor="middle"
+            pointerEvents="none"
+            opacity={0.8}
+          >
+            calculation group
+          </text>
+        </>
+      )}
+    </>
+  );
+}
+
+/** Truncate a string longer than `max` to first-half + ellipsis + last-half so
+ *  the most informative ends of a long path stay visible. */
+function middleEllipsis(s: string, max: number): string {
+  if (s.length <= max) return s;
+  const headLen = Math.ceil((max - 1) / 2);
+  const tailLen = Math.floor((max - 1) / 2);
+  return s.slice(0, headLen) + "…" + s.slice(s.length - tailLen);
 }
 
 function escape(s: string): string {

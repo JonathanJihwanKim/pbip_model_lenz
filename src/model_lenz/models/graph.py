@@ -4,6 +4,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
+from model_lenz.models.lineage import Confidence
 from model_lenz.models.semantic import Cardinality, Crossfilter
 
 EdgeKind = Literal["direct", "relationship", "userel"]
@@ -16,6 +17,8 @@ class GraphNode(BaseModel):
     label: str
     classification: str | None = None  # for table nodes
     source_label: str | None = None  # source-system name if known
+    source_connector: str | None = None
+    source_confidence: Confidence | None = None
 
 
 class GraphEdge(BaseModel):
@@ -53,6 +56,9 @@ class IndirectTable(BaseModel):
     ambiguous: bool = False
     crosses_fact: bool = False
     paths: list[IndirectPath] = Field(default_factory=list)
+    source_label: str | None = None
+    source_connector: str | None = None
+    source_confidence: Confidence | None = None
 
 
 class MeasureRef(BaseModel):
@@ -80,6 +86,10 @@ class UserelHint(BaseModel):
 class MeasureGraph(BaseModel):
     measure: dict[str, Any]
     direct_tables: list[str] = Field(default_factory=list)
+    direct_table_meta: list[GraphNode] = Field(default_factory=list)
+    """Per-table metadata for `direct_tables` (same order). Carries classification
+    and source-system identifiers so the measure-graph payload is self-contained
+    and frontends don't have to cross-reference against `/api/tables`."""
     direct_columns: list[ColumnRef] = Field(default_factory=list)
     referenced_measures: list[MeasureRef] = Field(default_factory=list)
     userel_hints: list[UserelHint] = Field(default_factory=list)

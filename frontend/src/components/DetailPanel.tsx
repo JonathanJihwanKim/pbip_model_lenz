@@ -1,11 +1,12 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import hljs from "highlight.js/lib/core";
 import sql from "highlight.js/lib/languages/sql";
 
 import { api } from "../api/client";
-import type { TableDetail } from "../api/types";
+import type { Confidence, GraphNode, TableDetail } from "../api/types";
 import { useStore } from "../store";
 import { cardinalityGlyph } from "../graph/edgeStyles";
+import { connectorToGlyphId } from "../graph/connectorGlyphs";
 
 hljs.registerLanguage("sql", sql);
 
@@ -17,7 +18,6 @@ export function DetailPanel() {
   const clearSelection = useStore((s) => s.clearSelection);
   const pinSelection = useStore((s) => s.pinSelection);
   const goBack = useStore((s) => s.goBack);
-  const view = useStore((s) => s.view);
 
   if (!selection) return null;
 
@@ -51,10 +51,68 @@ export function DetailPanel() {
       </div>
 
       {selection.kind === "measure" && (
-        <MeasureDetails loading={measureGraphLoading} graph={measureGraph} view={view} />
+        <MeasureDetails loading={measureGraphLoading} graph={measureGraph} />
       )}
-      {selection.kind === "table" && <TableDetailsLoader name={selection.name} view={view} />}
+      {selection.kind === "table" && <TableDetailsLoader name={selection.name} />}
     </aside>
+  );
+}
+
+/** Inline source-identifier chip: connector glyph + truncated source path +
+ *  optional confidence badge. Used in the detail panel's direct/indirect lists
+ *  so each row carries both the semantic name (above, by the caller) and the
+ *  data-engineer view (this component, beneath). */
+function SourceIdentifier({
+  label,
+  connector,
+  confidence,
+}: {
+  label: string;
+  connector: string | null;
+  confidence: Confidence | null;
+}) {
+  const glyphId = connectorToGlyphId(connector);
+  return (
+    <div className="source-id" title={connector ? `${connector} · ${label}` : label}>
+      <svg className="source-id-glyph" viewBox="0 0 14 14" width="11" height="11" aria-hidden>
+        <use href={`#${glyphId}`} />
+      </svg>
+      <span className="source-id-text mono">{label}</span>
+      {confidence && (
+        <span className={`badge mini conf-${confidence}`} title={`Confidence: ${confidence}`}>
+          {confidence}
+        </span>
+      )}
+    </div>
+  );
+}
+
+/** Renders a measure-graph table row: semantic name on top, inline source-id
+ *  beneath if one was resolved. Pure presentation — extracted so both Direct
+ *  and Indirect lists render the dual-name UX consistently. */
+function TableRowWithSource({
+  semantic,
+  meta,
+  badges,
+}: {
+  semantic: string;
+  meta?: { source_label: string | null; source_connector: string | null; source_confidence: Confidence | null };
+  badges?: React.ReactNode;
+}) {
+  return (
+    <div className="dual-table-row">
+      <div className="dual-table-name">
+        <strong>{semantic}</strong>
+        {badges}
+      </div>
+      {meta?.source_label && (
+        <SourceIdentifier
+          label={meta.source_label}
+          connector={meta.source_connector}
+          confidence={meta.source_confidence}
+        />
+      )}
+    </div>
   );
 }
 
@@ -131,24 +189,15 @@ function ResizeHandle() {
 function MeasureDetails({
   loading,
   graph,
-  view,
 }: {
   loading: boolean;
   graph: ReturnType<typeof useStore.getState>["measureGraph"];
-  view: "semantic" | "source";
 }) {
-  const tables = useStore((s) => s.tables);
-  const tableLookup = useMemo(() => new Map(tables.map((t) => [t.name, t])), [tables]);
-
   if (loading || !graph) return <p className="muted">Loading…</p>;
 
-  const fmt = (name: string) => {
-    if (view === "source") {
-      const t = tableLookup.get(name);
-      return t?.source_table ?? name;
-    }
-    return name;
-  };
+  const metaByTable = new Map<string, GraphNode>(
+    graph.direct_table_meta.map((m) => [m.label, m]),
+  );
 
   return (
     <div className="detail-body">
@@ -170,17 +219,31 @@ function MeasureDetails({
           {graph.direct_tables.map((t) => {
             const viaSeed = isReferencedBySeed(t, graph);
             const viaRefs = referencingMeasures(t, graph.referenced_measures, "direct");
+            const meta = metaByTable.get(t);
             return (
               <li key={t} className="table-row">
-                <span className="table-name" title={t}>
-                  {fmt(t)}
-                </span>
-                {viaSeed && <span className="badge mini direct-self">in this DAX</span>}
-                {viaRefs.map((r) => (
-                  <span key={r} className="badge mini via">
-                    via {r}
-                  </span>
-                ))}
+                <TableRowWithSource
+                  semantic={t}
+                  meta={
+                    meta
+                      ? {
+                          source_label: meta.source_label,
+                          source_connector: meta.source_connector,
+                          source_confidence: meta.source_confidence,
+                        }
+                      : undefined
+                  }
+                  badges={
+                    <>
+                      {viaSeed && <span className="badge mini direct-self">in this DAX</span>}
+                      {viaRefs.map((r) => (
+                        <span key={r} className="badge mini via">
+                          via {r}
+                        </span>
+                      ))}
+                    </>
+                  }
+                />
               </li>
             );
           })}
@@ -241,26 +304,33 @@ function MeasureDetails({
             return (
             <li key={it.table}>
               <div className="indirect-head">
-                <strong>{fmt(it.table)}</strong>
-                <span className="badge">d{it.depth}</span>
-                {it.ambiguous && (
-                  <span className="badge ambiguous">ambiguous</span>
-                )}
-                {it.crosses_fact && (
-                  <span className="badge warn">crosses fact</span>
-                )}
-                {viaRefs.map((r) => (
-                  <span key={r} className="badge mini via">
-                    via {r}
-                  </span>
-                ))}
+                <TableRowWithSource
+                  semantic={it.table}
+                  meta={{
+                    source_label: it.source_label,
+                    source_connector: it.source_connector,
+                    source_confidence: it.source_confidence,
+                  }}
+                  badges={
+                    <>
+                      <span className="badge">d{it.depth}</span>
+                      {it.ambiguous && <span className="badge ambiguous">ambiguous</span>}
+                      {it.crosses_fact && <span className="badge warn">crosses fact</span>}
+                      {viaRefs.map((r) => (
+                        <span key={r} className="badge mini via">
+                          via {r}
+                        </span>
+                      ))}
+                    </>
+                  }
+                />
               </div>
               {it.paths.map((p, i) => (
                 <div key={i} className="path">
                   {p.hops.map((h, j) => (
                     <span key={j}>
                       <code className="mono">
-                        {fmt(h.from_table)}[{h.from_column}]
+                        {h.from_table}[{h.from_column}]
                       </code>
                       <span className="path-arrow">
                         {" "}
@@ -269,7 +339,7 @@ function MeasureDetails({
                       </span>
                       {j === p.hops.length - 1 && (
                         <code className="mono">
-                          {fmt(h.to_table)}[{h.to_column}]
+                          {h.to_table}[{h.to_column}]
                         </code>
                       )}
                     </span>
@@ -295,7 +365,7 @@ function MeasureDetails({
   );
 }
 
-function TableDetailsLoader({ name, view }: { name: string; view: "semantic" | "source" }) {
+function TableDetailsLoader({ name }: { name: string }) {
   const [detail, setDetail] = useState<TableDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -313,12 +383,14 @@ function TableDetailsLoader({ name, view }: { name: string; view: "semantic" | "
 
   return (
     <div className="detail-body">
+      <ViewBanner kind="pbi" />
       <Section title="Classification">
         <span className={`chip on dot-${t.classification}`}>{t.classification}</span>
         {t.is_hidden && <span className="badge">hidden</span>}
       </Section>
 
-      {lineage && (
+      <ViewBanner kind="de" />
+      {lineage ? (
         <Section title="Source lineage">
           <div className="lineage-card">
             <div className="lineage-row">
@@ -359,8 +431,16 @@ function TableDetailsLoader({ name, view }: { name: string; view: "semantic" | "
             )}
           </div>
         </Section>
+      ) : (
+        <Section title="Source lineage">
+          <p className="muted">
+            No source detected — this is likely a calculated table, a manually
+            entered table, or a parameter.
+          </p>
+        </Section>
       )}
 
+      <ViewBanner kind="pbi" />
       <Section title={`Columns (${t.columns.length})`}>
         <ul className="list compact">
           {t.columns.slice(0, 20).map((c) => (
@@ -393,26 +473,41 @@ function TableDetailsLoader({ name, view }: { name: string; view: "semantic" | "
 
       <Section title={`Relationships (${detail.relationships.length})`}>
         <ul className="list compact">
-          {detail.relationships.map((r) => {
-            const labelize = (table: string) => {
-              if (view === "source") return table;
-              return table;
-            };
-            return (
-              <li key={r.id}>
-                <code className="mono">
-                  {labelize(r.from_table)}[{r.from_column}]
-                </code>{" "}
-                →({cardinalityGlyph(r.cardinality)}){r.crossfilter === "both" ? "↔" : ""}{" "}
-                <code className="mono">
-                  {labelize(r.to_table)}[{r.to_column}]
-                </code>
-                {!r.is_active && <span className="badge mini">inactive</span>}
-              </li>
-            );
-          })}
+          {detail.relationships.map((r) => (
+            <li key={r.id}>
+              <code className="mono">
+                {r.from_table}[{r.from_column}]
+              </code>{" "}
+              →({cardinalityGlyph(r.cardinality)}){r.crossfilter === "both" ? "↔" : ""}{" "}
+              <code className="mono">
+                {r.to_table}[{r.to_column}]
+              </code>
+              {!r.is_active && <span className="badge mini">inactive</span>}
+            </li>
+          ))}
         </ul>
       </Section>
+    </div>
+  );
+}
+
+/** Small horizontal banner labeling the next set of sections as either the
+ *  Power BI developer view (semantic-model-side info) or the data engineer
+ *  view (source-system-side info). Helps both audiences orient themselves
+ *  without a stateful toggle. */
+function ViewBanner({ kind }: { kind: "pbi" | "de" }) {
+  if (kind === "pbi") {
+    return (
+      <div className="view-banner view-banner-pbi">
+        <span className="view-banner-dot" aria-hidden />
+        Power BI developer view
+      </div>
+    );
+  }
+  return (
+    <div className="view-banner view-banner-de">
+      <span className="view-banner-dot" aria-hidden />
+      Data engineer view
     </div>
   );
 }

@@ -11,13 +11,58 @@ from model_lenz.analyzers import transitive
 from model_lenz.analyzers.relationships import RelationshipGraph
 from model_lenz.models.graph import (
     ColumnRef,
+    GraphNode,
     IndirectTable,
     MeasureGraph,
     MeasureRef,
     UserelHint,
 )
-from model_lenz.models.semantic import Measure, Model
+from model_lenz.models.lineage import SourceLineage
+from model_lenz.models.semantic import Measure, Model, Table
 from model_lenz.parsers.dax import extract_refs
+
+_CONFIDENCE_RANK = {"high": 3, "medium": 2, "low": 1}
+
+
+def _best_source_lineage(table: Table) -> SourceLineage | None:
+    """Pick the highest-confidence partition's lineage for a table.
+
+    Most PBIPs have one partition per table, but incremental-refresh setups
+    fan out into archival/incremental partitions that point at the same source.
+    Higher confidence wins so the dual-name UI shows the resolved identifier,
+    not the placeholder one.
+    """
+    best: SourceLineage | None = None
+    for p in table.partitions:
+        lineage = p.source_lineage
+        if lineage is None:
+            continue
+        if best is None:
+            best = lineage
+            continue
+        if _CONFIDENCE_RANK.get(lineage.confidence, 0) > _CONFIDENCE_RANK.get(best.confidence, 0):
+            best = lineage
+    return best
+
+
+def _node_meta_for_table(name: str, table_index: dict[str, Table]) -> GraphNode:
+    """Build a GraphNode carrying classification + source identifiers for a
+    table referenced by name. Returns a node with only `label` set when the
+    table is unknown (rare; happens when DAX references a not-yet-resolved table).
+    """
+    t = table_index.get(name)
+    if t is None:
+        return GraphNode(id=f"t:{name}", kind="table", label=name)
+    lineage = _best_source_lineage(t)
+    return GraphNode(
+        id=f"t:{name}",
+        kind="table",
+        label=name,
+        classification=t.classification,
+        source_label=lineage.fully_qualified or lineage.table if lineage else None,
+        source_connector=lineage.connector if lineage else None,
+        source_confidence=lineage.confidence if lineage else None,
+    )
 
 
 def build_measure_graph(
@@ -41,6 +86,7 @@ def build_measure_graph(
     # introduced each table) is preserved on `referenced_measures` below.
     all_direct = refs.direct.tables | refs.transitive.tables
     direct_tables = sorted(all_direct)
+    direct_table_meta = [_node_meta_for_table(name, table_index) for name in direct_tables]
     direct_columns = sorted(refs.direct.columns)
     referenced_measures = sorted(refs.direct.measures)
 
@@ -106,6 +152,7 @@ def build_measure_graph(
             "lineageTag": measure.lineage_tag,
         },
         direct_tables=direct_tables,
+        direct_table_meta=direct_table_meta,
         direct_columns=[ColumnRef(table=t, column=c) for t, c in direct_columns],
         referenced_measures=ref_previews,
         userel_hints=[
@@ -120,7 +167,9 @@ def build_measure_graph(
 def _annotate_indirect(
     raw: list[IndirectTable], table_index: dict
 ) -> list[IndirectTable]:
-    """Set `crosses_fact` based on table classification of intermediate hops."""
+    """Set `crosses_fact` based on table classification of intermediate hops,
+    and populate source identifiers from the target table's best-confidence
+    partition lineage so the dual-name UI doesn't need a separate lookup."""
     out: list[IndirectTable] = []
     for it in raw:
         crosses = False
@@ -132,5 +181,17 @@ def _annotate_indirect(
                     break
             if crosses:
                 break
-        out.append(it.model_copy(update={"crosses_fact": crosses}))
+        target = table_index.get(it.table)
+        lineage = _best_source_lineage(target) if target else None
+        source_label = (lineage.fully_qualified or lineage.table) if lineage else None
+        out.append(
+            it.model_copy(
+                update={
+                    "crosses_fact": crosses,
+                    "source_label": source_label,
+                    "source_connector": lineage.connector if lineage else None,
+                    "source_confidence": lineage.confidence if lineage else None,
+                }
+            )
+        )
     return out

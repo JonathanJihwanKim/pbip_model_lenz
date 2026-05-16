@@ -18,6 +18,17 @@
 
 ---
 
+## Who this is for
+
+Model Lenz is built for the two-person conversation that happens every time a Power BI measure touches a warehouse table:
+
+- **Power BI developers.** See every table a DAX measure depends on — directly through the expression and indirectly through active relationships, with `USERELATIONSHIP(...)` overrides honored. Spot which referenced sub-measure introduced a table you didn't expect.
+- **Data engineers.** See the underlying source identifier for every table the model exposes — BigQuery FQN, SQL `[schema].[table]`, Snowflake `DB.SCHEMA.TABLE`, file path — without opening Power Query Editor. Preview which BI measures break before renaming a source column.
+
+Both views render on every table node at once, so a screenshot dropped into a PR or Slack thread tells the full story to both audiences.
+
+---
+
 ## Try it in 30 seconds (no clone needed)
 
 ```bash
@@ -30,7 +41,7 @@ Nothing to clone. Nothing to download from GitHub. The wheel ships the CLI, a pr
 The demo is a hand-authored 5-table model (Date, Customer, Product, Sales_fct, Measure). When the browser opens:
 
 1. Click **Margin %** in the left sidebar. The dashed edges light up across all three dimensions, even though the expression only mentions other measures.
-2. Toggle **Semantic ↔ Source** in the header. The same graph re-reads in BigQuery / Snowflake / SQL table names.
+2. Look at any table node. Every node shows both its semantic-model name (the one a Power BI developer types in DAX) and the source identifier below it (the BigQuery / SQL / Snowflake path a data engineer recognizes). A small connector glyph on the source line tells you at a glance which warehouse the table came from.
 
 Got your own PBIP folder? Continue to [Install](#install).
 
@@ -47,9 +58,9 @@ For every measure (and for User Defined Functions, calculated columns, and calcu
 - Direct table refs parsed from the DAX expression.
 - Referenced measures (`[Other Measure]` calls), resolved transitively so the chain bottoms out at real tables.
 - Indirect tables reached by walking active relationships from the direct refs, with cardinality glyphs (`*:1`, `1:*`), crossfilter direction (single or `↔`), and `USERELATIONSHIP(...)` overrides honored per measure.
-- Per-table source-system lineage with confidence labels. Power BI developers see PBIP table names. Data engineers flip the **Semantic ↔ Source** toggle and the same graph re-reads in `report_sales.fact_orders_combined` (BigQuery), `dbo.DimCustomer` (SQL Server), the full Snowflake path, or whichever source the M query points at.
+- Per-table source-system lineage with confidence labels. Every table node carries **both** names: the semantic-model name a Power BI developer sees, and the source identifier a data engineer recognizes — `report_sales.fact_orders_combined` (BigQuery), `dbo.DimCustomer` (SQL Server), the full Snowflake path, or whichever source the M query points at. A connector glyph on the source line makes the warehouse obvious at a glance.
 
-Same graph for both sides. When the Power BI developer and the data engineer talk about a measure in a PR or a Slack thread, they're looking at the same picture.
+Same graph for both sides. When the Power BI developer and the data engineer talk about a measure in a PR or a Slack thread, they're looking at the same picture and reading the same labels.
 
 ---
 
@@ -118,9 +129,11 @@ pip install model-lenz
 
 (Not recommended. `uv tool` / `pipx` keep `model-lenz` isolated from your project Pythons.)
 
-### Updating to a newer version
+---
 
-When a new release lands on PyPI, your installed `model-lenz` will keep running the older version until you upgrade it. One command does it:
+## Update
+
+When a new Model Lenz release lands on PyPI, your installed copy keeps running the old version until you upgrade. One command:
 
 ```powershell
 uv tool upgrade model-lenz
@@ -128,9 +141,9 @@ uv tool upgrade model-lenz
 
 (macOS/Linux: same command. With pipx: `pipx upgrade model-lenz`.)
 
-After upgrading, fully close the existing model-lenz browser tab and stop any running server (Ctrl+C in the terminal). Then run `model-lenz serve` again. Your browser should pick up the new bundle automatically. If it doesn't, hit **Ctrl+F5** (or **Cmd+Shift+R** on Mac) to force-refresh past the cached JavaScript.
+After upgrading, close any open `model-lenz` browser tab and stop any running server (Ctrl+C in the terminal), then run `model-lenz serve` again. The browser should pick up the new bundle automatically. If it doesn't, hit **Ctrl+F5** (or **Cmd+Shift+R** on Mac) to force-refresh past the cached JavaScript.
 
-To confirm which version you have:
+Confirm the version you have:
 
 ```powershell
 model-lenz version
@@ -215,14 +228,20 @@ Commands:
 
 Model Lenz exists because Power BI developers and data engineers need to look at the same model and have the same conversation about it. Everything on this roadmap serves that handshake. It surfaces model changes early, in a vocabulary both sides recognize, on a surface both sides can review.
 
-- **v0.2. Shared review surfaces.**
-  - Calculation groups in the graph view; calc-column visualizations.
-  - **Shareable URLs** that capture the selected measure, Semantic/Source toggle state, and walk depth. Paste a link into a PR or Slack thread and both sides land on the exact same view. No more "which view are you looking at?"
-  - **Export to Mermaid / SVG** for embedding sub-graphs in pull requests and design docs.
+- **v0.2. One screenshot, both audiences. (shipped in 0.3.0)**
+  - **Dual-name graph.** Every table node carries both its semantic-model name (the one a Power BI developer types in DAX) and the source identifier a data engineer recognizes — BigQuery FQN, SQL `[schema].[table]`, Snowflake `DB.SCHEMA.TABLE`, file path — with a connector glyph on the source line. No mode toggle: both labels render simultaneously so a screenshot in a PR or Slack thread tells the full story.
+  - **Power BI brand color.** The UI chrome adopts the Power BI gold gradient. A clearly labeled `Dark / Light` theme control sits next to `Hops` in the header.
+  - **Confidence badges in the detail panel.** Source identifiers carry a `high` / `medium` / `low` badge so readers know which entries were extracted cleanly from native SQL vs. inferred from upstream M references.
+  - **Calc-group glyph in nodes.** Calculation-group tables now carry a small `fx` glyph and the literal text `calculation group` so they don't get confused with regular fact / dim tables.
 
 - **v0.3. Change-impact conversations.**
-  - **PBIP diff view.** Point Model Lenz at two refs (`main` vs `feature/x`) and see which measures' direct *and indirect* table-dependency sets changed. A data engineer can preview which BI measures break before renaming a source column. A BI developer can show a data engineer exactly which warehouse tables a new measure now reaches.
+  - **`model-lenz diff <base_pbip> <head_pbip>`. (shipped in 0.3.0)** Point Model Lenz at two PBIP folders and see which measures' direct *and indirect* table-dependency sets changed. A data engineer can preview which BI measures break before renaming a source column. A BI developer can show a data engineer exactly which warehouse tables a new measure now reaches. Side-by-side DAX, color-coded added / removed / modified across measures, tables, and relationships. If either folder is inside a Git working tree, branch names auto-fill the BASE / HEAD labels; a Swap button lets you flip them if you ran the CLI in the wrong order.
+  - **Diff on the graph canvas.** v0.3.0 ships the diff as a structured list. The next polish iteration overlays diff status (green / amber / red borders) on the existing bus-layout graph so the same canvas does double duty.
   - **Per-measure / per-table Markdown handoff cards.** One-pager exports a BI developer can paste into Jira, Slack, or a PR description when asking the data engineer about a specific column or relationship.
+  - **Shareable URLs.** Capture the selected measure and walk depth in the URL. Paste into a PR or Slack thread and both sides land on the exact same view.
+  - **Export to Mermaid / SVG.** Embed sub-graphs in pull requests and design docs.
+
+> **Where your sponsorship goes.** The diff view, the handoff cards, the v0.4 CI gate, and the next batch of source connectors (Snowflake native SQL, Databricks, Synapse Serverless) are the next things on the build list. [GitHub Sponsors](https://github.com/sponsors/JonathanJihwanKim) or [Buy Me a Coffee](https://www.buymeacoffee.com/jihwankim) accelerates them.
 
 - **v0.4. Guardrails before the merge.**
   - **`model-lenz check` for CI.** Extends `summary` into a policy-gate command that can fail a build on orphan measures, fact tables sourced from more than one warehouse, ambiguous propagation paths through multiple facts, or measures whose indirect-table set grew by more than N tables in a single commit. Catches anti-patterns at PR time, before they become a review thread.
@@ -309,7 +328,13 @@ Model Lenz is free, ad-free, and never phones home. Every parser, walker, and gr
 - **[❤ GitHub Sponsors](https://github.com/sponsors/JonathanJihwanKim)**. Recurring $2 / $5 / $10 / $25 / $50 per month. Top tier includes a 30-minute monthly call with a Microsoft MVP.
 - **[☕ Buy Me a Coffee](https://www.buymeacoffee.com/jihwankim)**. One-time contributions, any amount.
 
-Sponsorship funds new connector parsers (Snowflake-native-SQL, Databricks, Synapse), CI-mode policy gates, and v0.3 PBIP-diff work.
+**Where sponsorship goes:**
+
+- **v0.3 PBIP diff view.** Side-by-side measure DAX, color-coded added / removed / modified across measures, tables, and relationships. The biggest single feature on the build list.
+- **v0.3 Markdown handoff cards.** Per-measure and per-table one-pagers a BI developer can paste into a PR description, Jira ticket, or Slack thread when asking a data engineer about a specific column.
+- **v0.4 `model-lenz check` CI gate.** Fail a build on orphan measures, fact tables sourced from more than one warehouse, ambiguous propagation paths, or indirect-table-set growth above a threshold.
+- **New source connectors.** Snowflake native SQL, Databricks, Synapse Serverless. Each opens a class of warehouses Model Lenz currently labels with low confidence.
+- **Documentation, issue triage, maintenance.** The unglamorous work that keeps the tool usable.
 
 [![Sponsor on GitHub](https://img.shields.io/badge/GitHub_Sponsors-%E2%9D%A4-EA4AAA?style=for-the-badge&logo=github-sponsors&logoColor=white)](https://github.com/sponsors/JonathanJihwanKim)
 [![Buy Me a Coffee](https://img.shields.io/badge/Buy_Me_A_Coffee-%E2%98%95-FFDD00?style=for-the-badge&logo=buymeacoffee&logoColor=black)](https://www.buymeacoffee.com/jihwankim)

@@ -22,7 +22,11 @@ from model_lenz.api.routes import router as api_router
 FRONTEND_DIST = Path(__file__).parent / "frontend_dist"
 
 
-def create_app(pbip_path: str | Path) -> FastAPI:
+def create_app(
+    pbip_path: str | Path,
+    *,
+    diff_context: dict | None = None,
+) -> FastAPI:
     app = FastAPI(
         title="Model Lenz",
         version=__version__,
@@ -30,6 +34,10 @@ def create_app(pbip_path: str | Path) -> FastAPI:
     )
     app.state.pbip_path = str(Path(pbip_path).resolve())
     app.state.cache = ModelCache()
+    # diff_context is None for `model-lenz serve`. It's populated by
+    # `model-lenz diff` and read by the /api/diff* routes. Holding it on
+    # app.state keeps the API stateless from the caller's perspective.
+    app.state.diff_context = diff_context
     app.include_router(api_router)
 
     @app.get("/healthz", include_in_schema=False)
@@ -78,15 +86,18 @@ def serve(
     host: str = "127.0.0.1",
     port: int = 0,
     open_browser: bool = True,
+    diff_context: dict | None = None,
+    landing_path: str = "/",
 ) -> None:
-    """Start uvicorn in the foreground."""
+    """Start uvicorn in the foreground. When `diff_context` is set, opens the
+    browser to `landing_path` ("/diff" by default for the diff CLI)."""
     import uvicorn
 
     bound_port = port or _find_free_port(host)
-    app = create_app(pbip_path)
+    app = create_app(pbip_path, diff_context=diff_context)
 
     if open_browser:
-        url = f"http://{host}:{bound_port}/"
+        url = f"http://{host}:{bound_port}{landing_path}"
         with contextlib.suppress(Exception):  # nosec - best-effort browser open
             webbrowser.open(url)
 

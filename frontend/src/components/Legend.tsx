@@ -1,7 +1,7 @@
 import { useState } from "react";
 
 const ITEMS: { color: string; shape: string; label: string }[] = [
-  { color: "#7C5CFF", shape: "rect", label: "Measure" },
+  { color: "var(--measure-fill)", shape: "rect", label: "Measure" },
   { color: "#1F6FEB", shape: "hex", label: "Fact" },
   { color: "#3FB68B", shape: "circle", label: "Dim" },
   { color: "#E1A938", shape: "circle", label: "Time" },

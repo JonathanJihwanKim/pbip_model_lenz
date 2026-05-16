@@ -8,7 +8,7 @@ export interface NodeStyle {
 }
 
 const PALETTE: Record<Classification | "measure", NodeStyle> = {
-  measure: { fill: "#7C5CFF", stroke: "#3D2FB8", shape: "rounded-rect", size: 22 },
+  measure: { fill: "var(--measure-fill)", stroke: "var(--measure-stroke)", shape: "rounded-rect", size: 22 },
   fact: { fill: "#1F6FEB", stroke: "#0B3A8A", shape: "hexagon", size: 18 },
   dim: { fill: "#3FB68B", stroke: "#1F6E55", shape: "circle", size: 14 },
   parameter: { fill: "#A0A4AB", stroke: "#5C6068", shape: "diamond", size: 9 },

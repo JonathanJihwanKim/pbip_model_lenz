@@ -12,9 +12,11 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel
 
+from model_lenz.analyzers.diff import diff_models
 from model_lenz.analyzers.measure_graph import build_measure_graph
 from model_lenz.analyzers.relationships import RelationshipGraph
 from model_lenz.api.cache import ModelCache
+from model_lenz.models.diff import DiffContext, DiffPayload
 from model_lenz.models.graph import MeasureGraph
 from model_lenz.models.semantic import Model
 
@@ -223,6 +225,49 @@ def list_calculation_groups(state: State):
 def list_expressions(state: State):
     model, _ = state
     return [e.model_dump(by_alias=True) for e in model.expressions]
+
+
+@router.get("/diff/context", response_model=DiffContext)
+def get_diff_context(request: Request) -> DiffContext:
+    """Return the two PBIPs the active `model-lenz diff` session was launched
+    against, plus the resolved BASE/HEAD labels. The frontend's `/diff` route
+    calls this on mount to populate the diff header.
+    """
+    ctx = request.app.state.diff_context
+    if not ctx:
+        raise HTTPException(
+            400,
+            "No diff session active. Launch with `model-lenz diff <base> <head>` "
+            "or use `model-lenz serve` for the single-model view.",
+        )
+    return DiffContext(**ctx)
+
+
+@router.get("/diff", response_model=DiffPayload)
+def get_diff(request: Request) -> DiffPayload:
+    """Compute the diff between the two PBIPs configured by `model-lenz diff`.
+
+    Cached implicitly by `ModelCache`: each PBIP is parsed once per server
+    lifetime (and re-parsed transparently if its TMDL files have changed).
+    """
+    ctx = request.app.state.diff_context
+    if not ctx:
+        raise HTTPException(
+            400,
+            "No diff session active. Launch with `model-lenz diff <base> <head>`.",
+        )
+    cache: ModelCache = request.app.state.cache
+    base_entry = cache.get(ctx["base_path"])
+    head_entry = cache.get(ctx["head_path"])
+    return diff_models(
+        base_entry.model,
+        head_entry.model,
+        base_label=ctx["base_label"],
+        head_label=ctx["head_label"],
+        base_path=ctx["base_path"],
+        head_path=ctx["head_path"],
+        base_is_default_branch=ctx.get("base_is_default_branch", False),
+    )
 
 
 @router.get("/search", response_model=list[SearchHit])

@@ -1,4 +1,6 @@
 import type {
+  DiffContext,
+  DiffPayload,
   MeasureGraph,
   MeasureListItem,
   ModelSummary,
@@ -30,4 +32,6 @@ export const api = {
   relationships: () => fetchJson<RelationshipItem[]>("/api/relationships"),
   search: (q: string) =>
     fetchJson<SearchHit[]>(`/api/search?q=${encodeURIComponent(q)}`),
+  diffContext: () => fetchJson<DiffContext>("/api/diff/context"),
+  diff: () => fetchJson<DiffPayload>("/api/diff"),
 };

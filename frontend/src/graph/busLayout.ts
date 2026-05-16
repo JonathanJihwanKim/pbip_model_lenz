@@ -73,7 +73,7 @@ export const DEFAULT_LAYOUT: BusLayoutOptions = {
   dimSpacing: 160,
   factSpacing: 70,
   cardWidth: 130,
-  cardHeight: 28,
+  cardHeight: 36,
   factToFirstDimGap: 200,
   dimToFirstFactGap: 80,
 };
